@@ -1,7 +1,7 @@
 use super::models::*;
 
 use failure::Error;
-use rnix::{parser::*, tokenizer::Span};
+use rnix::{parser::*, tokenizer::{Meta, Span}};
 use std::collections::HashMap;
 
 crate fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> {
@@ -33,6 +33,12 @@ crate fn offset_to_pos(code: &str, offset: usize) -> Position {
         character: code[start_of_line..offset].chars().map(|c| c.len_utf16()).sum()
     }
 }
+crate fn span_to_range(code: &str, span: Span) -> Range {
+    Range {
+        start: offset_to_pos(code, span.start as usize),
+        end: offset_to_pos(code, span.end.expect("no span end") as usize),
+    }
+}
 
 crate type Scope = HashMap<String, Span>;
 
@@ -55,18 +61,21 @@ fn set_scope(arena: &Arena<'static, ASTNode>, scopes: &mut Vec<Scope>, values: &
         false
     }
 }
-crate fn lookup_def(arena: &Arena<'static, ASTNode>, node: &ASTNode, scopes: &mut Vec<Scope>, offset: u32)
-    -> Result<Span, bool>
+crate fn lookup_var<F, T>(
+    arena: &Arena<'static, ASTNode>,
+    node: &ASTNode,
+    scopes: &mut Vec<Scope>,
+    offset: u32,
+    callback: &mut F
+) -> Option<T>
+    where F: FnMut(&[Scope], &Meta, &str) -> T
 {
     let mut pushed_scope = false;
 
     match &node.1 {
         ASTType::Var(meta, name) => {
-            if meta.span.start >= offset {
-                return scopes.iter().rev()
-                    .filter_map(|scope| scope.get(&*name).cloned())
-                    .next()
-                    .ok_or(true);
+            if offset >= meta.span.start && offset <= meta.span.end.expect("no span end") {
+                return Some((*callback)(scopes, meta, name));
             }
         },
         ASTType::Set { recursive: Some(_), values: Brackets(_open, values, _close) } => {
@@ -82,9 +91,7 @@ crate fn lookup_def(arena: &Arena<'static, ASTNode>, node: &ASTNode, scopes: &mu
     }
 
     for id in node.1.children() {
-        let ret = lookup_def(arena, &arena[id], scopes, offset);
-        // Returns Ok(_) if it has a result or Err(true) if found
-        if ret.is_ok() || ret.unwrap_err() {
+        if let ret @ Some(_) = lookup_var(arena, &arena[id], scopes, offset, callback) {
             return ret;
         }
     }
@@ -92,5 +99,5 @@ crate fn lookup_def(arena: &Arena<'static, ASTNode>, node: &ASTNode, scopes: &mu
     if pushed_scope {
         scopes.pop().unwrap();
     }
-    Err(false)
+    None
 }

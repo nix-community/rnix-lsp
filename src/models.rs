@@ -55,6 +55,12 @@ crate struct Location {
 crate struct Change {
     crate text: String
 }
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+crate struct TextEdit {
+    crate range: Range,
+    crate new_text: String
+}
 
 // Response
 #[derive(Clone, Debug, Serialize)]
@@ -118,7 +124,13 @@ crate struct InitializeResult {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 crate struct ServerCapabilities {
-    crate definition_provider: bool
+    crate definition_provider: bool,
+    crate completion_provider: CompletionOptions
+}
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+crate struct CompletionOptions {
+    crate resolve_provider: bool
 }
 #[derive(Clone, Debug, Serialize)]
 crate struct DiagnosticParams {
@@ -130,4 +142,9 @@ crate struct Diagnostic {
     crate range: Range,
     crate severity: usize,
     crate message: String
+}
+#[derive(Clone, Debug, Serialize)]
+crate struct CompletionItem {
+    crate label: String,
+    crate edit: TextEdit
 }

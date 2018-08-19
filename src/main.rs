@@ -104,7 +104,10 @@ impl<'a, W: io::Write> App<'a, W> {
             "initialize" => self.send(&Response::success(req.id, Some(
                 InitializeResult {
                     capabilities: ServerCapabilities {
-                        definition_provider: true
+                        definition_provider: true,
+                        completion_provider: CompletionOptions {
+                            resolve_provider: true
+                        }
                     }
                 }
             )))?,
@@ -130,22 +133,65 @@ impl<'a, W: io::Write> App<'a, W> {
                     let offset = utils::lookup_pos(code, params.position)?;
 
                     let mut scope = Vec::new();
-                    let def = utils::lookup_def(&ast.arena, &ast.root, &mut scope, offset as u32);
+                    let def = utils::lookup_var(
+                        &ast.arena,
+                        &ast.root,
+                        &mut scope,
+                        offset as u32,
+                        &mut |scopes, _meta, name| {
+                            scopes.iter().rev()
+                                .filter_map(|scope| scope.get(&*name).cloned())
+                                .next()
+                        });
                     //writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, scope, def)?;
 
-                    self.send(&Response::success(req.id, if let Ok(def) = def {
+                    self.send(&Response::success(req.id, if let Some(Some(span)) = def {
                         Some(Location {
                             uri: params.text_document.uri,
-                            range: Range {
-                                start: utils::offset_to_pos(code, def.start as usize),
-                                end: utils::offset_to_pos(code, def.end.expect("no span end") as usize)
-                            }
+                            range: utils::span_to_range(code, span)
                         })
                     } else {
                         None
                     }))?;
                 } else {
                     self.send(&Response::empty(req.id))?;
+                }
+            },
+            "textDocument/completion" => {
+                let params: Definition = serde_json::from_value(req.params)?;
+                if let Some((Some(ast), code)) = self.files.get(&params.text_document.uri) {
+                    let offset = utils::lookup_pos(code, params.position)?;
+
+                    let mut scopes = Vec::new();
+                    let def = utils::lookup_var(
+                        &ast.arena,
+                        &ast.root,
+                        &mut scopes,
+                        offset as u32,
+                        &mut |_scopes, meta, name| {
+                            (meta.span, name.to_string())
+                        }
+                    );
+
+                    let mut completions = Vec::new();
+
+                    if let Some((span, name)) = def {
+                        for scope in scopes {
+                            for (var, _) in scope {
+                                if var.starts_with(&name) {
+                                    completions.push(CompletionItem {
+                                        label: var.clone(),
+                                        edit: TextEdit {
+                                            range: utils::span_to_range(code, span),
+                                            new_text: var
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    self.send(&Response::success(req.id, completions))?;
                 }
             },
             _ => ()
@@ -168,10 +214,7 @@ impl<'a, W: io::Write> App<'a, W> {
         for (span, error) in errors {
             if let Some(span) = span {
                 diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: utils::offset_to_pos(code, span.start as usize),
-                        end: utils::offset_to_pos(code, span.end.expect("no span end") as usize),
-                    },
+                    range: utils::span_to_range(code, span),
                     severity: ERROR,
                     message: error
                 });
