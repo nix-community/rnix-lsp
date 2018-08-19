@@ -176,7 +176,7 @@ impl<'a, W: io::Write> App<'a, W> {
                     let mut completions = Vec::new();
 
                     if let Some(()) = def {
-                        for scope in scopes {
+                        for scope in scopes.into_iter().rev() {
                             for (var, _) in scope {
                                 if var.starts_with(&name) {
                                     completions.push(CompletionItem {
