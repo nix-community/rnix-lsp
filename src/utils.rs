@@ -1,7 +1,7 @@
 use super::models::*;
 
 use failure::Error;
-use rnix::{parser::*, tokenizer::{Meta, Span}};
+use rnix::{parser::*, tokenizer::Span};
 use std::collections::HashMap;
 
 crate fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> {
@@ -39,6 +39,28 @@ crate fn span_to_range(code: &str, span: Span) -> Range {
         end: offset_to_pos(code, span.end.expect("no span end") as usize),
     }
 }
+crate fn ident_at(code: &str, offset: usize) -> (&str, Span) {
+    fn is_ident(c: &char) -> bool {
+        match *c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => true,
+            _ => false
+        }
+    }
+
+    let start: usize = offset -
+        code[..offset].chars().rev()
+            .take_while(is_ident)
+            .map(char::len_utf8)
+            .sum::<usize>();
+    let end = offset + code[offset..].chars()
+            .take_while(is_ident)
+            .map(char::len_utf8)
+            .sum::<usize>();
+    (&code[start..end], Span {
+        start: start as u32,
+        end: Some(end as u32)
+    })
+}
 
 crate type Scope = HashMap<String, Span>;
 
@@ -68,16 +90,11 @@ crate fn lookup_var<F, T>(
     offset: u32,
     callback: &mut F
 ) -> Option<T>
-    where F: FnMut(&[Scope], &Meta, &str) -> T
+    where F: FnMut(&[Scope], Span) -> T
 {
     let mut pushed_scope = false;
 
     match &node.1 {
-        ASTType::Var(meta, name) => {
-            if offset >= meta.span.start && offset <= meta.span.end.expect("no span end") {
-                return Some((*callback)(scopes, meta, name));
-            }
-        },
         ASTType::Set { recursive: Some(_), values: Brackets(_open, values, _close) } => {
             pushed_scope = set_scope(arena, scopes, values);
         },
@@ -94,6 +111,11 @@ crate fn lookup_var<F, T>(
         if let ret @ Some(_) = lookup_var(arena, &arena[id], scopes, offset, callback) {
             return ret;
         }
+    }
+
+    let span = node.0;
+    if offset >= span.start && offset <= span.end.expect("no span end") {
+        return Some((*callback)(scopes, span));
     }
 
     if pushed_scope {

@@ -133,12 +133,13 @@ impl<'a, W: io::Write> App<'a, W> {
                     let offset = utils::lookup_pos(code, params.position)?;
 
                     let mut scope = Vec::new();
+                    let (name, _) = utils::ident_at(code, offset);
                     let def = utils::lookup_var(
                         &ast.arena,
                         &ast.root,
                         &mut scope,
                         offset as u32,
-                        &mut |scopes, _meta, name| {
+                        &mut |scopes, _span| {
                             scopes.iter().rev()
                                 .filter_map(|scope| scope.get(&*name).cloned())
                                 .next()
@@ -163,19 +164,18 @@ impl<'a, W: io::Write> App<'a, W> {
                     let offset = utils::lookup_pos(code, params.position)?;
 
                     let mut scopes = Vec::new();
+                    let (name, span) = utils::ident_at(code, offset);
                     let def = utils::lookup_var(
                         &ast.arena,
                         &ast.root,
                         &mut scopes,
                         offset as u32,
-                        &mut |_scopes, meta, name| {
-                            (meta.span, name.to_string())
-                        }
+                        &mut |_, _| ()
                     );
 
                     let mut completions = Vec::new();
 
-                    if let Some((span, name)) = def {
+                    if let Some(()) = def {
                         for scope in scopes {
                             for (var, _) in scope {
                                 if var.starts_with(&name) {
