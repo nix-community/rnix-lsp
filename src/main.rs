@@ -116,6 +116,7 @@ impl<'a> App<'a> {
             "textDocument/didChange" => {
                 let params: DidChange = serde_json::from_value(req.params)?;
                 if let Some(change) = params.content_changes.into_iter().last() {
+                    //writeln!(self.log, "PARSED: {:?}", rnix::parse(&change.text).map(|_| ()))?;
                     self.files.insert(params.text_document.uri, (rnix::parse(&change.text).ok(), change.text));
                 }
                 None
@@ -126,8 +127,8 @@ impl<'a> App<'a> {
                     let offset = utils::lookup_pos(code, params.position)?;
 
                     let mut scope = Vec::new();
-                    let def = utils::lookup_def(self.log, &ast.arena, &ast.root, &mut scope, offset as u32);
-                    writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, scope, def)?;
+                    let def = utils::lookup_def(&ast.arena, &ast.root, &mut scope, offset as u32);
+                    //writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, scope, def)?;
 
                     Some(serde_json::to_vec(&Response::success(req.id, if let Ok(def) = def {
                         Some(Location {
@@ -144,7 +145,7 @@ impl<'a> App<'a> {
                     Some(serde_json::to_vec(&Response::empty(req.id))?)
                 }
             },
-            _ => Some(serde_json::to_vec(&Response::empty(req.id))?)
+            _ => None
         })
     }
 }

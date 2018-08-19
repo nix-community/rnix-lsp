@@ -34,45 +34,63 @@ crate fn offset_to_pos(code: &str, offset: usize) -> Position {
     }
 }
 
-crate type Scope = Vec<HashMap<String, Span>>;
+crate type Scope = HashMap<String, Span>;
 
-crate fn lookup_def(log: &mut std::fs::File, arena: &Arena<'static, ASTNode>, node: &ASTNode, scope: &mut Scope, offset: u32)
+fn set_scope(arena: &Arena<'static, ASTNode>, scopes: &mut Vec<Scope>, values: &[SetEntry]) -> bool {
+    let mut map = HashMap::new();
+    for entry in values {
+        if let SetEntry::Assign(Attribute(attr), _assign, _value, _semi) = entry {
+            if let Some(attr) = attr.first() {
+                let (key, _) = attr;
+                if let ASTType::Var(meta, name) = &arena[*key].1 {
+                    map.insert(name.clone(), meta.span);
+                }
+            }
+        }
+    }
+    if !map.is_empty() {
+        scopes.push(map);
+        true
+    } else {
+        false
+    }
+}
+crate fn lookup_def(arena: &Arena<'static, ASTNode>, node: &ASTNode, scopes: &mut Vec<Scope>, offset: u32)
     -> Result<Span, bool>
 {
+    let mut pushed_scope = false;
+
     match &node.1 {
         ASTType::Var(meta, name) => {
-            use std::io::prelude::*;
-            writeln!(log, "Var {} at offset {}", name, meta.span.start);
             if meta.span.start >= offset {
-                return scope.iter().rev()
+                return scopes.iter().rev()
                     .filter_map(|scope| scope.get(&*name).cloned())
                     .next()
                     .ok_or(true);
             }
         },
-        ASTType::Set { recursive: _, values: Brackets(_open, values, _close) } => {
-            let mut map = HashMap::new();
-            for entry in values {
-                if let SetEntry::Assign(Attribute(attr), _assign, _value, _semi) = entry {
-                    if attr.len() == 1 {
-                        let (key, _) = attr[0];
-                        if let ASTType::Var(meta, name) = &arena[key].1 {
-                            map.insert(name.clone(), meta.span);
-                        }
-                    }
-                }
-            }
-            scope.push(map);
+        ASTType::Set { recursive: Some(_), values: Brackets(_open, values, _close) } => {
+            pushed_scope = set_scope(arena, scopes, values);
+        },
+        ASTType::Let(_let, Brackets(_open, values, _close)) => {
+            pushed_scope = set_scope(arena, scopes, values);
+        },
+        ASTType::LetIn(_let, values, _in, _body) => {
+            pushed_scope = set_scope(arena, scopes, values);
         },
         _ => ()
     }
 
     for id in node.1.children() {
-        let ret = lookup_def(log, arena, &arena[id], scope, offset);
+        let ret = lookup_def(arena, &arena[id], scopes, offset);
         // Returns Ok(_) if it has a result or Err(true) if found
         if ret.is_ok() || ret.unwrap_err() {
             return ret;
         }
+    }
+
+    if pushed_scope {
+        scopes.pop().unwrap();
     }
     Err(false)
 }
