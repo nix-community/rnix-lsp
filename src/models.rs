@@ -1,6 +1,8 @@
 use serde_json::Value;
 use std::fmt;
 
+crate const ERROR: usize = 1;
+
 // Request
 #[derive(Clone, Debug, Deserialize)]
 crate struct Request {
@@ -102,6 +104,11 @@ impl Response<()> {
         }
     }
 }
+#[derive(Clone, Debug, Serialize)]
+crate struct Notification<T> {
+    crate method: String,
+    crate params: T
+}
 
 // Response types
 #[derive(Clone, Debug, Serialize)]
@@ -112,4 +119,15 @@ crate struct InitializeResult {
 #[serde(rename_all = "camelCase")]
 crate struct ServerCapabilities {
     crate definition_provider: bool
+}
+#[derive(Clone, Debug, Serialize)]
+crate struct DiagnosticParams {
+    crate uri: String,
+    crate diagnostics: Vec<Diagnostic>
+}
+#[derive(Clone, Debug, Serialize)]
+crate struct Diagnostic {
+    crate range: Range,
+    crate severity: usize,
+    crate message: String
 }
