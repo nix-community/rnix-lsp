@@ -1,6 +1,7 @@
 #[macro_use] extern crate failure;
 #[macro_use] extern crate serde_derive;
 
+mod format;
 mod models;
 mod utils;
 
@@ -104,10 +105,11 @@ impl<'a, W: io::Write> App<'a, W> {
             "initialize" => self.send(&Response::success(req.id, Some(
                 InitializeResult {
                     capabilities: ServerCapabilities {
-                        definition_provider: true,
                         completion_provider: CompletionOptions {
                             resolve_provider: true
-                        }
+                        },
+                        definition_provider: true,
+                        document_formatting_provider: true
                     }
                 }
             )))?,
@@ -129,14 +131,14 @@ impl<'a, W: io::Write> App<'a, W> {
             },
             "textDocument/definition" => {
                 let params: Definition = serde_json::from_value(req.params)?;
-                if let Some((Some(ast), code)) = self.files.get(&params.text_document.uri) {
+                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
                     let offset = utils::lookup_pos(code, params.position)?;
 
                     let mut scope = Vec::new();
                     let (name, _) = utils::ident_at(code, offset);
                     let def = utils::lookup_var(
-                        &ast.arena,
-                        &ast.root,
+                        &mut ast.arena,
+                        ast.root,
                         &mut scope,
                         offset as u32,
                         &mut |scopes, _span| {
@@ -146,34 +148,35 @@ impl<'a, W: io::Write> App<'a, W> {
                         });
                     //writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, scope, def)?;
 
-                    self.send(&Response::success(req.id, if let Some(Some(span)) = def {
+                    let response = if let Some(Some(span)) = def {
                         Some(Location {
                             uri: params.text_document.uri,
                             range: utils::span_to_range(code, span)
                         })
                     } else {
                         None
-                    }))?;
+                    };
+                    self.send(&Response::success(req.id, response))?;
                 } else {
                     self.send(&Response::empty(req.id))?;
                 }
             },
             "textDocument/completion" => {
                 let params: Definition = serde_json::from_value(req.params)?;
-                if let Some((Some(ast), code)) = self.files.get(&params.text_document.uri) {
+                let mut completions = Vec::new();
+
+                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
                     let offset = utils::lookup_pos(code, params.position)?;
 
                     let mut scopes = Vec::new();
                     let (name, span) = utils::ident_at(code, offset);
                     let def = utils::lookup_var(
-                        &ast.arena,
-                        &ast.root,
+                        &mut ast.arena,
+                        ast.root,
                         &mut scopes,
                         offset as u32,
                         &mut |_, _| ()
                     );
-
-                    let mut completions = Vec::new();
 
                     if let Some(()) = def {
                         for scope in scopes.into_iter().rev() {
@@ -190,9 +193,33 @@ impl<'a, W: io::Write> App<'a, W> {
                             }
                         }
                     }
-
-                    self.send(&Response::success(req.id, completions))?;
                 }
+
+                self.send(&Response::success(req.id, completions))?;
+            },
+            "textDocument/formatting" => {
+                let params: Formatting = serde_json::from_value(req.params)?;
+
+                let mut formatting = Vec::new();
+
+                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
+                    if ast.errors().next().is_none() {
+                        format::format(&mut ast.arena, ast.root, 0)?;
+
+                        formatting.push(TextEdit {
+                            range: Range {
+                                start: Position {
+                                    line: 0,
+                                    character: 0
+                                },
+                                end: utils::offset_to_pos(code, code.len())
+                            },
+                            new_text: ast.to_string()
+                        });
+                    }
+                }
+
+                self.send(&Response::success(req.id, formatting))?;
             },
             _ => ()
         }

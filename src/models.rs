@@ -29,6 +29,11 @@ crate struct Definition {
     crate position: Position,
     crate text_document: TextDocument
 }
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+crate struct Formatting {
+    crate text_document: TextDocument
+}
 
 // General objects
 #[derive(Clone, Debug, Deserialize)]
@@ -124,8 +129,9 @@ crate struct InitializeResult {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 crate struct ServerCapabilities {
+    crate completion_provider: CompletionOptions,
     crate definition_provider: bool,
-    crate completion_provider: CompletionOptions
+    crate document_formatting_provider: bool
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

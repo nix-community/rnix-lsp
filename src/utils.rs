@@ -1,7 +1,7 @@
 use super::models::*;
 
 use failure::Error;
-use rnix::{parser::*, tokenizer::Span};
+use rnix::{parser::{*, children::Child}, tokenizer::Span};
 use std::collections::HashMap;
 
 crate fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> {
@@ -85,13 +85,14 @@ fn set_scope(arena: &Arena<'static, ASTNode>, scopes: &mut Vec<Scope>, values: &
 }
 crate fn lookup_var<F, T>(
     arena: &Arena<'static, ASTNode>,
-    node: &ASTNode,
+    id: NodeId,
     scopes: &mut Vec<Scope>,
     offset: u32,
     callback: &mut F
 ) -> Option<T>
     where F: FnMut(&[Scope], Span) -> T
 {
+    let node = &arena[id];
     let mut pushed_scope = false;
 
     match &node.1 {
@@ -107,9 +108,11 @@ crate fn lookup_var<F, T>(
         _ => ()
     }
 
-    for id in node.1.children() {
-        if let ret @ Some(_) = lookup_var(arena, &arena[id], scopes, offset, callback) {
-            return ret;
+    for child in node.1.children() {
+        if let Child::Node(id) = child {
+            if let ret @ Some(_) = lookup_var(arena, id, scopes, offset, callback) {
+                return ret;
+            }
         }
     }
 
