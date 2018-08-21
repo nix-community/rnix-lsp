@@ -13,7 +13,7 @@ use rnix::{
     Error as NixError
 };
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt,
     fs::File,
     io::{self, prelude::*}
@@ -134,18 +134,15 @@ impl<'a, W: io::Write> App<'a, W> {
                 if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
                     let offset = utils::lookup_pos(code, params.position)?;
 
-                    let mut scope = Vec::new();
+                    let mut scopes = utils::Scopes::default();
                     let (name, _) = utils::ident_at(code, offset);
                     let def = utils::lookup_var(
-                        &mut ast.arena,
+                        &mut &ast.arena,
                         ast.root,
-                        &mut scope,
+                        &mut scopes,
                         offset as u32,
-                        &mut |scopes, _span| {
-                            scopes.iter().rev()
-                                .filter_map(|scope| scope.get(&*name).cloned())
-                                .next()
-                        });
+                        &mut |lookup| lookup.scopes.find_var(&name).map(|(_, span)| span)
+                    );
                     //writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, scope, def)?;
 
                     let response = if let Some(Some(span)) = def {
@@ -168,18 +165,18 @@ impl<'a, W: io::Write> App<'a, W> {
                 if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
                     let offset = utils::lookup_pos(code, params.position)?;
 
-                    let mut scopes = Vec::new();
+                    let mut scopes = utils::Scopes::default();
                     let (name, span) = utils::ident_at(code, offset);
                     let def = utils::lookup_var(
-                        &mut ast.arena,
+                        &mut &ast.arena,
                         ast.root,
                         &mut scopes,
                         offset as u32,
-                        &mut |_, _| ()
+                        &mut |_| ()
                     );
 
                     if let Some(()) = def {
-                        for scope in scopes.into_iter().rev() {
+                        for scope in scopes.0.into_iter().rev() {
                             for (var, _) in scope {
                                 if var.starts_with(&name) {
                                     completions.push(CompletionItem {
@@ -212,7 +209,7 @@ impl<'a, W: io::Write> App<'a, W> {
                                     line: 0,
                                     character: 0
                                 },
-                                end: utils::offset_to_pos(code, code.len())
+                                end: utils::offset_to_pos(code, code.len() - 1)
                             },
                             new_text: ast.to_string()
                         });
@@ -220,6 +217,43 @@ impl<'a, W: io::Write> App<'a, W> {
                 }
 
                 self.send(&Response::success(req.id, formatting))?;
+            },
+            "textDocument/rename" => {
+                let params: RenameParams = serde_json::from_value(req.params)?;
+
+                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
+                    let offset = utils::lookup_pos(code, params.position)?;
+
+                    let mut scopes = utils::Scopes::default();
+                    let (old, _) = utils::ident_at(code, offset);
+                    utils::lookup_var(
+                        &mut &mut ast.arena,
+                        ast.root,
+                        &mut scopes,
+                        offset as u32,
+                        &mut |lookup| {
+                            if let Some((set, _)) = lookup.scopes.find_var(old) {
+                                utils::rename(lookup.arena, set, old, &params.new_name);
+                            }
+                        }
+                    );
+
+                    let mut changes = BTreeMap::new();
+
+                    changes.insert(params.text_document.uri, vec![TextEdit {
+                        range: Range {
+                            start: Position {
+                                line: 0,
+                                character: 0
+                            },
+                            end: utils::offset_to_pos(code, code.len() - 1)
+                        },
+                        new_text: ast.to_string()
+                    }]);
+
+                    self.send(&Response::success(req.id, WorkspaceEdit { changes }))?;
+                }
+                self.send(&Response::error(req.id, "there are errors in the code"))?;
             },
             _ => ()
         }

@@ -1,5 +1,8 @@
 use serde_json::Value;
-use std::fmt;
+use std::{
+    collections::BTreeMap,
+    fmt
+};
 
 crate const ERROR: usize = 1;
 
@@ -33,6 +36,13 @@ crate struct Definition {
 #[serde(rename_all = "camelCase")]
 crate struct Formatting {
     crate text_document: TextDocument
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+crate struct RenameParams {
+    crate text_document: TextDocument,
+    crate position: Position,
+    crate new_name: String
 }
 
 // General objects
@@ -153,4 +163,8 @@ crate struct Diagnostic {
 crate struct CompletionItem {
     crate label: String,
     crate edit: TextEdit
+}
+#[derive(Clone, Debug, Serialize)]
+crate struct WorkspaceEdit {
+    crate changes: BTreeMap<String, Vec<TextEdit>>
 }
