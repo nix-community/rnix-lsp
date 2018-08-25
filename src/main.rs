@@ -1,7 +1,9 @@
+#![feature(panic_info_message)]
+
 #[macro_use] extern crate failure;
 #[macro_use] extern crate serde_derive;
 
-mod format;
+// mod format;
 mod models;
 mod utils;
 
@@ -16,11 +18,13 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt,
     fs::File,
-    io::{self, prelude::*}
+    io::{self, prelude::*},
+    panic
 };
 
 fn main() -> Result<(), Error> {
     let mut log = File::create("/tmp/nix-lsp.log")?;
+    let log_clone = log.try_clone()?;
 
     let stdout = io::stdout();
     let mut app = App {
@@ -28,8 +32,17 @@ fn main() -> Result<(), Error> {
         log: &mut log,
         stdout: stdout.lock()
     };
+    panic::set_hook(Box::new(move |panic| {
+        writeln!(&log_clone, "----- Panic -----").unwrap();
+        if let Some(loc) = panic.location() {
+            writeln!(&log_clone, "At {}:{}:{}", loc.file(), loc.line(), loc.column()).unwrap();
+        }
+        if let Some(msg) = panic.message() {
+            writeln!(&log_clone, "Message: {}", msg).unwrap();
+        }
+    }));
     if let Err(err) = app.main() {
-        writeln!(log, "{:?}", err);
+        writeln!(log, "{:?}", err).unwrap();
         return Err(err);
     }
 
@@ -194,30 +207,30 @@ impl<'a, W: io::Write> App<'a, W> {
 
                 self.send(&Response::success(req.id, completions))?;
             },
-            "textDocument/formatting" => {
-                let params: Formatting = serde_json::from_value(req.params)?;
+            //"textDocument/formatting" => {
+            //    let params: Formatting = serde_json::from_value(req.params)?;
 
-                let mut formatting = Vec::new();
+            //    let mut formatting = Vec::new();
 
-                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
-                    if ast.errors().next().is_none() {
-                        format::format(&mut ast.arena, ast.root, 0)?;
+            //    if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
+            //        if ast.errors().next().is_none() {
+            //            format::format(&mut ast.arena, ast.root, 0)?;
 
-                        formatting.push(TextEdit {
-                            range: Range {
-                                start: Position {
-                                    line: 0,
-                                    character: 0
-                                },
-                                end: utils::offset_to_pos(code, code.len() - 1)
-                            },
-                            new_text: ast.to_string()
-                        });
-                    }
-                }
+            //            formatting.push(TextEdit {
+            //                range: Range {
+            //                    start: Position {
+            //                        line: 0,
+            //                        character: 0
+            //                    },
+            //                    end: utils::offset_to_pos(code, code.len() - 1)
+            //                },
+            //                new_text: ast.to_string()
+            //            });
+            //        }
+            //    }
 
-                self.send(&Response::success(req.id, formatting))?;
-            },
+            //    self.send(&Response::success(req.id, formatting))?;
+            //},
             "textDocument/rename" => {
                 let params: RenameParams = serde_json::from_value(req.params)?;
 
@@ -238,6 +251,8 @@ impl<'a, W: io::Write> App<'a, W> {
                         }
                     );
 
+                    writeln!(self.log, "RENAME LOOKED UP. {} to {}", old, &params.new_name)?;
+
                     let mut changes = BTreeMap::new();
 
                     changes.insert(params.text_document.uri, vec![TextEdit {
@@ -251,9 +266,12 @@ impl<'a, W: io::Write> App<'a, W> {
                         new_text: ast.to_string()
                     }]);
 
+                    writeln!(self.log, "RENAME SUCCESS")?;
+
                     self.send(&Response::success(req.id, WorkspaceEdit { changes }))?;
+                } else {
+                    self.send(&Response::error(req.id, "there are errors in the code"))?;
                 }
-                self.send(&Response::error(req.id, "there are errors in the code"))?;
             },
             _ => ()
         }
@@ -263,7 +281,10 @@ impl<'a, W: io::Write> App<'a, W> {
         let errors = match ast {
             Ok(ast) => {
                 ast.errors()
-                    .map(|(span, err)| (*span, err.to_string()))
+                    .map(|node| {
+                         let (span, err) = node.error();
+                         (*span, err.to_string())
+                    })
                     .collect()
             },
             Err(err) => match *err {
@@ -272,12 +293,12 @@ impl<'a, W: io::Write> App<'a, W> {
             }
         };
         let mut diagnostics = Vec::with_capacity(errors.len());
-        for (span, error) in errors {
+        for (span, err) in errors {
             if let Some(span) = span {
                 diagnostics.push(Diagnostic {
                     range: utils::span_to_range(code, span),
                     severity: ERROR,
-                    message: error
+                    message: err
                 });
             }
         }

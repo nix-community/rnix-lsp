@@ -2,10 +2,7 @@ use super::models::*;
 
 use failure::Error;
 use rnix::{
-    parser::{
-        *,
-        children::{Child, ChildMut}
-    },
+    parser::{*, types::*},
     tokenizer::Span
 };
 use std::{
@@ -45,7 +42,7 @@ crate fn offset_to_pos(code: &str, offset: usize) -> Position {
 crate fn span_to_range(code: &str, span: Span) -> Range {
     Range {
         start: offset_to_pos(code, span.start as usize),
-        end: offset_to_pos(code, span.end.expect("no span end") as usize),
+        end: offset_to_pos(code, span.end.map(|i| i as usize).unwrap_or(code.len() - 1)),
     }
 }
 crate fn ident_at(code: &str, offset: usize) -> (&str, Span) {
@@ -89,15 +86,16 @@ crate struct LookupDone<'a, A: 'a> {
     //crate span: Span
 }
 
-fn set_scope(arena: &Arena<'static, ASTNode>, id: NodeId, scopes: &mut Scopes, values: &[SetEntry]) -> bool {
+fn set_scope<'a, I>(arena: &Arena, id: NodeId, scopes: &mut Scopes, values: I) -> bool
+    where I: Iterator<Item = SetEntry<'a>>
+{
     let mut map = HashMap::new();
     for entry in values {
-        if let SetEntry::Assign(Attribute(attr), _assign, _value, _semi) = entry {
-            if let Some(attr) = attr.first() {
-                let (key, _) = attr;
-                if let ASTType::Var(meta, name) = &arena[*key].1 {
-                    map.insert(name.clone(), (id, meta.span));
-                }
+        let attr = entry.key(arena);
+
+        if let Some(first) = attr.node().children(arena).next() {
+            if let Data::Ident(meta, name) = &arena[first].data {
+                map.insert(name.clone(), (id, meta.span));
             }
         }
     }
@@ -109,59 +107,45 @@ fn set_scope(arena: &Arena<'static, ASTNode>, id: NodeId, scopes: &mut Scopes, v
     }
 }
 crate fn lookup_var<A, F, T>(
-    arena: &mut A,
+    arena_borrow: &mut A,
     id: NodeId,
     scopes: &mut Scopes,
     offset: u32,
     callback: &mut F
 ) -> Option<T>
-    where A: Borrow<Arena<'static, ASTNode>>,
+    where A: Borrow<Arena<'static>>,
           F: FnMut(LookupDone<A>) -> T
 {
-    let node = &(*arena).borrow()[id];
-    let span = node.0;
-    let mut pushed_scope = false;
+    let arena = (*arena_borrow).borrow();
+    let node = &arena[id];
+    let span = node.span;
+    let pushed_scope = if let Some(set) = Set::cast(node) {
+        if set.recursive(arena) {
+            set_scope(arena, id, scopes, set.entries(arena))
+        } else {
+            false
+        }
+    } else if let Some(let_) = Let::cast(node) {
+        set_scope(arena, id, scopes, let_.entries(arena))
+    } else if let Some(let_in) = LetIn::cast(node) {
+        set_scope(arena, id, scopes, let_in.entries(arena))
+    } else {
+        false
+    };
 
-    match &node.1 {
-        ASTType::Set { recursive: Some(_), values: Brackets(_open, values, _close) } => {
-            pushed_scope = set_scope((*arena).borrow(), id, scopes, values);
-        },
-        ASTType::Let(_let, Brackets(_open, values, _close)) => {
-            pushed_scope = set_scope((*arena).borrow(), id, scopes, values);
-        },
-        ASTType::LetIn(_let, values, _in, _body) => {
-            pushed_scope = set_scope((*arena).borrow(), id, scopes, values);
-        },
-        ASTType::Lambda(arg, _colon, _body) => {
-            let mut map = HashMap::new();
-            match arg {
-                LambdaArg::Ident(meta, arg) => { map.insert(arg.clone(), (id, meta.span)); },
-                LambdaArg::Pattern { args: Brackets(_open, args, _close), bind: _, ellipsis: _ } => {
-                    for entry in args {
-                        map.insert(entry.name.clone(), (id, entry.ident.span));
-                    }
-                }
-            }
-            scopes.0.push(map);
-            pushed_scope = true;
-        },
-        _ => ()
-    }
+    let mut cursor = node.node.child;
 
-    let mut i = 0;
-    while let Some(child) = &(*arena).borrow()[id].1.child(i) {
-        i += 1;
+    while let Some(child) = cursor {
+        cursor = (*arena_borrow).borrow()[child].node.sibling;
 
-        if let Child::Node(child_id) = *child {
-            if let ret @ Some(_) = lookup_var(arena, child_id, scopes, offset, callback) {
-                return ret;
-            }
+        if let ret @ Some(_) = lookup_var(arena_borrow, child, scopes, offset, callback) {
+            return ret;
         }
     }
 
-    if offset >= span.start && offset <= span.end.expect("no span end") {
+    if offset >= span.start && span.end.is_some() && offset <= span.end.unwrap() {
         return Some((*callback)(LookupDone {
-            arena,
+            arena: arena_borrow,
             //id,
             scopes,
             //span,
@@ -173,19 +157,17 @@ crate fn lookup_var<A, F, T>(
     }
     None
 }
-crate fn rename(arena: &mut Arena<'static, ASTNode>, id: NodeId, old: &str, new: &str) {
-    if let ASTType::Var(ref _meta, ref mut name) = (*arena)[id].1 {
+crate fn rename(arena: &mut Arena, id: NodeId, old: &str, new: &str) {
+    if let Data::Ident(ref _meta, ref mut name) = arena[id].data {
         if name == old {
             *name = new.to_string();
         }
     }
 
-    let mut i = 0;
-    while let Some(child) = (*arena)[id].1.child_mut(i) {
-        i += 1;
+    let mut cursor = arena[id].node.child;
 
-        if let ChildMut::Node(id) = child {
-            rename(arena, id, old, new);
-        }
+    while let Some(child) = cursor {
+        cursor = arena[child].node.sibling;
+        rename(arena, child, old, new);
     }
 }
