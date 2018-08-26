@@ -3,7 +3,7 @@
 #[macro_use] extern crate failure;
 #[macro_use] extern crate serde_derive;
 
-// mod format;
+mod format;
 mod models;
 mod utils;
 
@@ -207,30 +207,30 @@ impl<'a, W: io::Write> App<'a, W> {
 
                 self.send(&Response::success(req.id, completions))?;
             },
-            //"textDocument/formatting" => {
-            //    let params: Formatting = serde_json::from_value(req.params)?;
+            "textDocument/formatting" => {
+                let params: Formatting = serde_json::from_value(req.params)?;
 
-            //    let mut formatting = Vec::new();
+                let mut formatting = Vec::new();
 
-            //    if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
-            //        if ast.errors().next().is_none() {
-            //            format::format(&mut ast.arena, ast.root, 0)?;
+                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
+                    if ast.errors().next().is_none() {
+                        format::format(&mut ast.arena, ast.root, 0);
 
-            //            formatting.push(TextEdit {
-            //                range: Range {
-            //                    start: Position {
-            //                        line: 0,
-            //                        character: 0
-            //                    },
-            //                    end: utils::offset_to_pos(code, code.len() - 1)
-            //                },
-            //                new_text: ast.to_string()
-            //            });
-            //        }
-            //    }
+                        formatting.push(TextEdit {
+                            range: Range {
+                                start: Position {
+                                    line: 0,
+                                    character: 0
+                                },
+                                end: utils::offset_to_pos(code, code.len() - 1)
+                            },
+                            new_text: ast.to_string()
+                        });
+                    }
+                }
 
-            //    self.send(&Response::success(req.id, formatting))?;
-            //},
+                self.send(&Response::success(req.id, formatting))?;
+            },
             "textDocument/rename" => {
                 let params: RenameParams = serde_json::from_value(req.params)?;
 
