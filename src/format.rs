@@ -24,7 +24,7 @@ fn indent_meta(meta: &mut Meta, indent: u32) {
         meta.leading.push(Trivia::Spaces(indent));
     }
 }
-crate fn format(arena: &mut Arena<'static>, id: NodeId, mut indent: u32) {
+pub(crate) fn format(arena: &mut Arena<'static>, id: NodeId, mut indent: u32) {
     let node = &mut arena[id];
 
     match &mut node.data {

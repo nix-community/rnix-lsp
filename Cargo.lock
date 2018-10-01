@@ -1,6 +1,6 @@
 [[package]]
 name = "arenatree"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -69,7 +69,7 @@ name = "nix-lsp"
 version = "0.1.0"
 dependencies = [
  "failure 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "rnix 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rnix 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.71 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.75 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -93,10 +93,10 @@ dependencies = [
 
 [[package]]
 name = "rnix"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "arenatree 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "arenatree 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "smol_str 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -187,7 +187,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [metadata]
-"checksum arenatree 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d022df19ce9b62df2af87c5a44c82cbfd9c082274127093f3bf9b81b5ecae423"
+"checksum arenatree 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "04a75e2104dd4d4fa85d3a5c2b25d4dfc3b1e8ce1f343f7c8e5f9878478f11bc"
 "checksum backtrace 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "89a47830402e9981c5c41223151efcced65a0510c13097c769cede7efb34782a"
 "checksum backtrace-sys 0.1.24 (registry+https://github.com/rust-lang/crates.io-index)" = "c66d56ac8dabd07f6aacdaf633f4b8262f5b3601a810a0dcddffd5c22c69daa0"
 "checksum cc 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)" = "2119ea4867bd2b8ed3aecab467709720b2d55b1bcfe09f772fd68066eaf15275"
@@ -198,7 +198,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum libc 0.2.43 (registry+https://github.com/rust-lang/crates.io-index)" = "76e3a3ef172f1a0b9a9ff0dd1491ae5e6c948b94479a3021819ba7d860c8645d"
 "checksum proc-macro2 0.4.13 (registry+https://github.com/rust-lang/crates.io-index)" = "ee5697238f0d893c7f0ecc59c0999f18d2af85e424de441178bcacc9f9e6cf67"
 "checksum quote 0.6.6 (registry+https://github.com/rust-lang/crates.io-index)" = "ed7d650913520df631972f21e104a4fa2f9c82a14afc65d17b388a2e29731e7c"
-"checksum rnix 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "096f4f447ee56a7790dbb9615f94168815dedd324b40942b9383dde0a2933d14"
+"checksum rnix 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "1160ad2bf426dd39616a5adc63459a3e8f6750e4c8aeb1e06924ee0f5d7c336c"
 "checksum rustc-demangle 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "bcfe5b13211b4d78e5c2cadfebd7769197d95c639c35a50057eb4c05de811395"
 "checksum ryu 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "16aa12da69951804cddf5f74d96abcc414a31b064e610dc81e37c1536082f491"
 "checksum serde 1.0.71 (registry+https://github.com/rust-lang/crates.io-index)" = "6dfad05c8854584e5f72fb859385ecdfa03af69c3fd0572f0da2d4c95f060bdb"

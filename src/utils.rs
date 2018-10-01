@@ -10,7 +10,7 @@ use std::{
     borrow::Borrow
 };
 
-crate fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> {
+pub(crate) fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> {
     let mut lines = code.split('\n');
 
     let mut offset = 0;
@@ -32,20 +32,20 @@ crate fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> {
         })
         .ok_or_else(|| format_err!("invalid position"))
 }
-crate fn offset_to_pos(code: &str, offset: usize) -> Position {
+pub(crate) fn offset_to_pos(code: &str, offset: usize) -> Position {
     let start_of_line = code[..offset].rfind('\n').map(|n| n+1).unwrap_or(0);
     Position {
         line: code[..start_of_line].chars().filter(|&c| c == '\n').count(),
         character: code[start_of_line..offset].chars().map(|c| c.len_utf16()).sum()
     }
 }
-crate fn span_to_range(code: &str, span: Span) -> Range {
+pub(crate) fn span_to_range(code: &str, span: Span) -> Range {
     Range {
         start: offset_to_pos(code, span.start as usize),
         end: offset_to_pos(code, span.end.map(|i| i as usize).unwrap_or(code.len() - 1)),
     }
 }
-crate fn ident_at(code: &str, offset: usize) -> (&str, Span) {
+pub(crate) fn ident_at(code: &str, offset: usize) -> (&str, Span) {
     fn is_ident(c: &char) -> bool {
         match *c {
             'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => true,
@@ -69,7 +69,7 @@ crate fn ident_at(code: &str, offset: usize) -> (&str, Span) {
 }
 
 #[derive(Default)]
-crate struct Scopes(crate Vec<HashMap<String, (NodeId, Span)>>);
+pub(crate) struct Scopes(pub(crate) Vec<HashMap<String, (NodeId, Span)>>);
 
 impl Scopes {
     pub fn find_var(&mut self, name: &str) -> Option<(NodeId, Span)> {
@@ -79,11 +79,11 @@ impl Scopes {
     }
 }
 
-crate struct LookupDone<'a, A: 'a> {
-    crate arena: &'a mut A,
-    //crate id: NodeId,
-    crate scopes: &'a mut Scopes,
-    //crate span: Span
+pub(crate) struct LookupDone<'a, A: 'a> {
+    pub(crate) arena: &'a mut A,
+    //pub(crate) id: NodeId,
+    pub(crate) scopes: &'a mut Scopes,
+    //pub(crate) span: Span
 }
 
 fn set_scope<'a, I>(arena: &Arena, id: NodeId, scopes: &mut Scopes, values: I) -> bool
@@ -106,7 +106,7 @@ fn set_scope<'a, I>(arena: &Arena, id: NodeId, scopes: &mut Scopes, values: I) -
         false
     }
 }
-crate fn lookup_var<A, F, T>(
+pub(crate) fn lookup_var<A, F, T>(
     arena_borrow: &mut A,
     id: NodeId,
     scopes: &mut Scopes,
@@ -157,7 +157,7 @@ crate fn lookup_var<A, F, T>(
     }
     None
 }
-crate fn rename(arena: &mut Arena, id: NodeId, old: &str, new: &str) {
+pub(crate) fn rename(arena: &mut Arena, id: NodeId, old: &str, new: &str) {
     if let Data::Ident(ref _meta, ref mut name) = arena[id].data {
         if name == old {
             *name = new.to_string();
