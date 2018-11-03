@@ -10,10 +10,8 @@ mod utils;
 use self::models::*;
 
 use failure::Error;
-use rnix::{
-    parser::AST,
-    Error as NixError
-};
+use rnix::{parser::{AST, ParseError}, types::*};
+use rowan::WalkEvent;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
@@ -34,12 +32,7 @@ fn main() -> Result<(), Error> {
     };
     panic::set_hook(Box::new(move |panic| {
         writeln!(&log_clone, "----- Panic -----").unwrap();
-        if let Some(loc) = panic.location() {
-            writeln!(&log_clone, "At {}:{}:{}", loc.file(), loc.line(), loc.column()).unwrap();
-        }
-        if let Some(msg) = panic.message() {
-            writeln!(&log_clone, "Message: {}", msg).unwrap();
-        }
+        writeln!(&log_clone, "{}", panic).unwrap();
     }));
     if let Err(err) = app.main() {
         writeln!(log, "{:?}", err).unwrap();
@@ -50,7 +43,7 @@ fn main() -> Result<(), Error> {
 }
 
 struct App<'a, W: io::Write> {
-    files: HashMap<String, (Option<AST<'static>>, String)>,
+    files: HashMap<String, (AST, String)>,
     log: &'a mut File,
     stdout: W
 }
@@ -131,37 +124,29 @@ impl<'a, W: io::Write> App<'a, W> {
                 let text = params.text_document.text.ok_or_else(|| format_err!("missing text in request"))?;
                 let parsed = rnix::parse(&text);
                 self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
-                self.files.insert(params.text_document.uri, (parsed.ok(), text));
+                self.files.insert(params.text_document.uri, (parsed, text));
             },
             "textDocument/didChange" => {
                 let params: DidChange = serde_json::from_value(req.params)?;
                 if let Some(change) = params.content_changes.into_iter().last() {
-                    //writeln!(self.log, "PARSED: {:?}", rnix::parse(&change.text).map(|_| ()))?;
                     let parsed = rnix::parse(&change.text);
                     self.send_diagnostics(params.text_document.uri.clone(), &change.text, &parsed)?;
-                    self.files.insert(params.text_document.uri, (parsed.ok(), change.text));
+                    self.files.insert(params.text_document.uri, (parsed, change.text));
                 }
             },
             "textDocument/definition" => {
                 let params: Definition = serde_json::from_value(req.params)?;
-                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
+                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
                     let offset = utils::lookup_pos(code, params.position)?;
-
-                    let mut scopes = utils::Scopes::default();
                     let (name, _) = utils::ident_at(code, offset);
-                    let def = utils::lookup_var(
-                        &mut &ast.arena,
-                        ast.root,
-                        &mut scopes,
-                        offset as u32,
-                        &mut |lookup| lookup.scopes.find_var(&name).map(|(_, span)| span)
-                    );
-                    //writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, scope, def)?;
+                    let (scopes, _) = utils::scope_for(ast.node().borrowed(), offset, name);
 
-                    let response = if let Some(Some(span)) = def {
+                    //writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, name, scopes)?;
+
+                    let response = if let Some(node) = scopes.var(name) {
                         Some(Location {
                             uri: params.text_document.uri,
-                            range: utils::span_to_range(code, span)
+                            range: utils::range(code, node.range())
                         })
                     } else {
                         None
@@ -175,31 +160,23 @@ impl<'a, W: io::Write> App<'a, W> {
                 let params: Definition = serde_json::from_value(req.params)?;
                 let mut completions = Vec::new();
 
-                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
+                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
                     let offset = utils::lookup_pos(code, params.position)?;
 
-                    let mut scopes = utils::Scopes::default();
-                    let (name, span) = utils::ident_at(code, offset);
-                    let def = utils::lookup_var(
-                        &mut &ast.arena,
-                        ast.root,
-                        &mut scopes,
-                        offset as u32,
-                        &mut |_| ()
-                    );
+                    let (name, range) = utils::ident_at(code, offset);
+                    let range = utils::range(code, range);
+                    let (scopes, _) = utils::scope_for(ast.node().borrowed(), offset, name);
 
-                    if let Some(()) = def {
-                        for scope in scopes.0.into_iter().rev() {
-                            for (var, _) in scope {
-                                if var.starts_with(&name) {
-                                    completions.push(CompletionItem {
-                                        label: var.clone(),
-                                        edit: TextEdit {
-                                            range: utils::span_to_range(code, span),
-                                            new_text: var
-                                        }
-                                    });
-                                }
+                    for scope in scopes.0.into_iter().rev() {
+                        for var in scope.keys() {
+                            if var.starts_with(&name) {
+                                completions.push(CompletionItem {
+                                    label: var.clone(),
+                                    edit: TextEdit {
+                                        range,
+                                        new_text: var.clone()
+                                    }
+                                });
                             }
                         }
                     }
@@ -207,98 +184,59 @@ impl<'a, W: io::Write> App<'a, W> {
 
                 self.send(&Response::success(req.id, completions))?;
             },
-            "textDocument/formatting" => {
-                let params: Formatting = serde_json::from_value(req.params)?;
-
-                let mut formatting = Vec::new();
-
-                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
-                    if ast.errors().next().is_none() {
-                        format::format(&mut ast.arena, ast.root, 0);
-
-                        formatting.push(TextEdit {
-                            range: Range {
-                                start: Position {
-                                    line: 0,
-                                    character: 0
-                                },
-                                end: utils::offset_to_pos(code, code.len() - 1)
-                            },
-                            new_text: ast.to_string()
-                        });
-                    }
-                }
-
-                self.send(&Response::success(req.id, formatting))?;
-            },
             "textDocument/rename" => {
                 let params: RenameParams = serde_json::from_value(req.params)?;
 
-                if let Some((Some(ast), code)) = self.files.get_mut(&params.text_document.uri) {
-                    let offset = utils::lookup_pos(code, params.position)?;
+                let mut edits = Vec::new();
 
-                    let mut scopes = utils::Scopes::default();
-                    let (old, _) = utils::ident_at(code, offset);
-                    utils::lookup_var(
-                        &mut &mut ast.arena,
-                        ast.root,
-                        &mut scopes,
-                        offset as u32,
-                        &mut |lookup| {
-                            if let Some((set, _)) = lookup.scopes.find_var(old) {
-                                utils::rename(lookup.arena, set, old, &params.new_name);
+                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
+                    let offset = utils::lookup_pos(code, params.position)?;
+                    let (old_name, _) = utils::ident_at(code, offset);
+                    let (_, node) = utils::scope_for(ast.node().borrowed(), offset, old_name);
+
+                    if let Some(node) = node {
+                        for event in node.borrowed().preorder() {
+                            if let WalkEvent::Enter(node) = event {
+                                if let Some(ident) = Ident::cast(node) {
+                                    if ident.as_str() == old_name {
+                                        edits.push(TextEdit {
+                                            range: utils::range(code, node.range()),
+                                            new_text: params.new_name.clone()
+                                        });
+                                    }
+                                }
                             }
                         }
-                    );
-
-                    writeln!(self.log, "RENAME LOOKED UP. {} to {}", old, &params.new_name)?;
-
-                    let mut changes = BTreeMap::new();
-
-                    changes.insert(params.text_document.uri, vec![TextEdit {
-                        range: Range {
-                            start: Position {
-                                line: 0,
-                                character: 0
-                            },
-                            end: utils::offset_to_pos(code, code.len() - 1)
-                        },
-                        new_text: ast.to_string()
-                    }]);
-
-                    writeln!(self.log, "RENAME SUCCESS")?;
-
-                    self.send(&Response::success(req.id, WorkspaceEdit { changes }))?;
-                } else {
-                    self.send(&Response::error(req.id, "there are errors in the code"))?;
+                    }
                 }
+
+                let mut changes = BTreeMap::new();
+                changes.insert(params.text_document.uri, edits);
+
+                self.send(&Response::success(req.id, WorkspaceEdit { changes }))?;
+            }
+            "textDocument/formatting" => {
+                let params: Formatting = serde_json::from_value(req.params)?;
+
+                let mut edits = None;
+                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
+                    edits = Some(format::format(code, ast.node().borrowed()));
+                }
+                self.send(&Response::success(req.id, edits.unwrap_or_default()))?;
             },
             _ => ()
         }
         Ok(())
     }
-    fn send_diagnostics(&mut self, uri: String, code: &str, ast: &Result<AST, NixError>) -> Result<(), Error> {
-        let errors = match ast {
-            Ok(ast) => {
-                ast.errors()
-                    .map(|node| {
-                         let (span, err) = node.error();
-                         (*span, err.to_string())
-                    })
-                    .collect()
-            },
-            Err(err) => match *err {
-                NixError::TokenizeError(span, ref err) => vec![(Some(span), err.to_string())],
-                NixError::ParseError(span, ref err) => vec![(span, err.to_string())],
-            }
-        };
+    fn send_diagnostics(&mut self, uri: String, code: &str, ast: &AST) -> Result<(), Error> {
+        let errors = ast.errors();
         let mut diagnostics = Vec::with_capacity(errors.len());
-        for (span, err) in errors {
-            if let Some(span) = span {
+        for err in errors {
+            if let ParseError::Unexpected(ref node) = err {
                 diagnostics.push(Diagnostic {
-                    range: utils::span_to_range(code, span),
+                    range: utils::range(code, node.range()),
                     severity: ERROR,
-                    message: err
+                    message: err.to_string()
                 });
             }
         }

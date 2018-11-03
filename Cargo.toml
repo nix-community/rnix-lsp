@@ -6,7 +6,8 @@ edition = "2018"
 
 [dependencies]
 failure = "0.1.2"
-rnix = "0.4.1"
+rnix = { git = "https://gitlab.com/jD91mZM2/rnix", branch = "rowan" }
+rowan = { git = "https://github.com/matklad/rowan" }
 serde = "1.0.71"
 serde_derive = "1.0.74"
 serde_json = "1.0.26"

@@ -1,16 +1,14 @@
 use super::models::*;
 
 use failure::Error;
-use rnix::{
-    parser::{*, types::*},
-    tokenizer::Span
-};
+use rnix::{parser::*, types::*};
+use rowan::{TextRange, TextUnit, WalkEvent};
 use std::{
     collections::HashMap,
     borrow::Borrow
 };
 
-pub(crate) fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> {
+pub fn lookup_pos(code: &str, pos: Position) -> Result<usize, Error> {
     let mut lines = code.split('\n');
 
     let mut offset = 0;
@@ -21,31 +19,30 @@ pub(crate) fn lookup_pos(code: &str, mut pos: Position) -> Result<usize, Error> 
 
     lines.next()
         .and_then(|line| {
-            for c in line.chars() {
-                pos.character = match pos.character.checked_sub(1) {
-                    Some(i) => i,
-                    None => break
-                };
-                offset += c.len_utf8();
-            }
-            Some(offset)
+            Some(
+                offset +
+                    line.chars()
+                        .take(pos.character)
+                        .map(char::len_utf8)
+                        .sum::<usize>()
+            )
         })
         .ok_or_else(|| format_err!("invalid position"))
 }
-pub(crate) fn offset_to_pos(code: &str, offset: usize) -> Position {
+pub fn offset_to_pos(code: &str, offset: usize) -> Position {
     let start_of_line = code[..offset].rfind('\n').map(|n| n+1).unwrap_or(0);
     Position {
         line: code[..start_of_line].chars().filter(|&c| c == '\n').count(),
         character: code[start_of_line..offset].chars().map(|c| c.len_utf16()).sum()
     }
 }
-pub(crate) fn span_to_range(code: &str, span: Span) -> Range {
+pub fn range(code: &str, range: TextRange) -> Range {
     Range {
-        start: offset_to_pos(code, span.start as usize),
-        end: offset_to_pos(code, span.end.map(|i| i as usize).unwrap_or(code.len() - 1)),
+        start: offset_to_pos(code, range.start().to_usize()),
+        end: offset_to_pos(code, range.end().to_usize()),
     }
 }
-pub(crate) fn ident_at(code: &str, offset: usize) -> (&str, Span) {
+pub fn ident_at(code: &str, offset: usize) -> (&str, TextRange) {
     fn is_ident(c: &char) -> bool {
         match *c {
             'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => true,
@@ -62,112 +59,76 @@ pub(crate) fn ident_at(code: &str, offset: usize) -> (&str, Span) {
             .take_while(is_ident)
             .map(char::len_utf8)
             .sum::<usize>();
-    (&code[start..end], Span {
-        start: start as u32,
-        end: Some(end as u32)
-    })
+    (&code[start..end], TextRange::from_to(TextUnit::from_usize(start), TextUnit::from_usize(end)))
 }
 
-#[derive(Default)]
-pub(crate) struct Scopes(pub(crate) Vec<HashMap<String, (NodeId, Span)>>);
-
-impl Scopes {
-    pub fn find_var(&mut self, name: &str) -> Option<(NodeId, Span)> {
+#[derive(Debug, Default)]
+pub struct Scopes<'a>(pub Vec<HashMap<String, Node<rowan::RefRoot<'a, Types>>>>);
+impl<'a> Scopes<'a> {
+    pub fn var(&self, name: &str) -> Option<&Node<rowan::RefRoot<'a, Types>>> {
         self.0.iter().rev()
-            .filter_map(|scope| scope.get(&*name).cloned())
+            .filter_map(|scope| scope.get(name))
             .next()
+    }
+    pub fn populate<T: EntryHolder<rowan::RefRoot<'a, Types>>>(&mut self, set: &T) {
+        let mut map = HashMap::new();
+        for entry in set.entries() {
+            let attr = entry.key();
+            let mut path = attr.path();
+            if let Some(ident) = path.next().and_then(Ident::cast) {
+                map.insert(ident.as_str().into(), *ident.node());
+            }
+        }
+        self.0.push(map);
     }
 }
 
-pub(crate) struct LookupDone<'a, A: 'a> {
-    pub(crate) arena: &'a mut A,
-    //pub(crate) id: NodeId,
-    pub(crate) scopes: &'a mut Scopes,
-    //pub(crate) span: Span
-}
-
-fn set_scope<'a, I>(arena: &Arena, id: NodeId, scopes: &mut Scopes, values: I) -> bool
-    where I: Iterator<Item = SetEntry<'a>>
+pub fn scope_for<'a>(node: Node<rowan::RefRoot<'a, Types>>, offset: usize, name: &str)
+    -> (Scopes<'a>, Option<Node<rowan::RefRoot<'a, Types>>>)
 {
-    let mut map = HashMap::new();
-    for entry in values {
-        let attr = entry.key(arena);
+    let mut scopes = Scopes::default();
 
-        if let Some(first) = attr.node().children(arena).next() {
-            if let Data::Ident(meta, name) = &arena[first].data {
-                map.insert(name.clone(), (id, meta.span));
+    for event in node.borrow().preorder() {
+        match event {
+            WalkEvent::Enter(node) => {
+                if let Some(let_in) = LetIn::cast(node) {
+                    scopes.populate(&let_in);
+                } else if let Some(let_) = Let::cast(node) {
+                    scopes.populate(&let_);
+                } else if let Some(set) = Set::cast(node) {
+                    if set.recursive() {
+                        scopes.populate(&set);
+                    }
+                } else if let Some(lambda) = Lambda::cast(node) {
+                    let mut map = HashMap::new();
+                    if let Some(ident) = Ident::cast(lambda.arg()) {
+                        map.insert(ident.as_str().into(), *ident.node());
+                    } else if let Some(pattern) = Pattern::cast(lambda.arg()) {
+                        for entry in pattern.entries() {
+                            let ident = entry.name();
+                            map.insert(ident.as_str().into(), *ident.node());
+                        }
+                    }
+                    scopes.0.push(map);
+                }
+            },
+            WalkEvent::Leave(node) => {
+                let range = node.range();
+                if LetIn::cast(node).is_some()
+                        || Let::cast(node).is_some()
+                        || Set::cast(node).map(|set| set.recursive()).unwrap_or(false)
+                        || Lambda::cast(node).is_some() {
+                    if scopes.0.last().unwrap().contains_key(name)
+                            && offset >= range.start().to_usize()
+                            && offset < range.end().to_usize() {
+                        // We found the offset, return all scopes at this point
+                        return (scopes, Some(node));
+                    }
+                    scopes.0.pop().unwrap();
+                }
             }
         }
     }
-    if !map.is_empty() {
-        scopes.0.push(map);
-        true
-    } else {
-        false
-    }
-}
-pub(crate) fn lookup_var<A, F, T>(
-    arena_borrow: &mut A,
-    id: NodeId,
-    scopes: &mut Scopes,
-    offset: u32,
-    callback: &mut F
-) -> Option<T>
-    where A: Borrow<Arena<'static>>,
-          F: FnMut(LookupDone<A>) -> T
-{
-    let arena = (*arena_borrow).borrow();
-    let node = &arena[id];
-    let span = node.span;
-    let pushed_scope = if let Some(set) = Set::cast(node) {
-        if set.recursive(arena) {
-            set_scope(arena, id, scopes, set.entries(arena))
-        } else {
-            false
-        }
-    } else if let Some(let_) = Let::cast(node) {
-        set_scope(arena, id, scopes, let_.entries(arena))
-    } else if let Some(let_in) = LetIn::cast(node) {
-        set_scope(arena, id, scopes, let_in.entries(arena))
-    } else {
-        false
-    };
 
-    let mut cursor = node.node.child;
-
-    while let Some(child) = cursor {
-        cursor = (*arena_borrow).borrow()[child].node.sibling;
-
-        if let ret @ Some(_) = lookup_var(arena_borrow, child, scopes, offset, callback) {
-            return ret;
-        }
-    }
-
-    if offset >= span.start && span.end.is_some() && offset <= span.end.unwrap() {
-        return Some((*callback)(LookupDone {
-            arena: arena_borrow,
-            //id,
-            scopes,
-            //span,
-        }));
-    }
-
-    if pushed_scope {
-        scopes.0.pop().unwrap();
-    }
-    None
-}
-pub(crate) fn rename(arena: &mut Arena, id: NodeId, old: &str, new: &str) {
-    if let Data::Ident(ref _meta, ref mut name) = arena[id].data {
-        if name == old {
-            *name = new.to_string();
-        }
-    }
-
-    let mut cursor = arena[id].node.child;
-
-    while let Some(child) = cursor {
-        cursor = arena[child].node.sibling;
-        rename(arena, child, old, new);
-    }
+    (scopes, None)
 }

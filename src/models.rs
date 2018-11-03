@@ -4,93 +4,93 @@ use std::{
     fmt
 };
 
-pub(crate) const ERROR: usize = 1;
+pub const ERROR: usize = 1;
 
 // Request
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Request {
-    pub(crate) id: Option<usize>,
-    pub(crate) method: String,
-    pub(crate) params: Value
+pub struct Request {
+    pub id: Option<usize>,
+    pub method: String,
+    pub params: Value
 }
 
 // Request params
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DidOpen {
-    pub(crate) text_document: TextDocument
+pub struct DidOpen {
+    pub text_document: TextDocument
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DidChange {
-    pub(crate) content_changes: Vec<Change>,
-    pub(crate) text_document: TextDocument
+pub struct DidChange {
+    pub content_changes: Vec<Change>,
+    pub text_document: TextDocument
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Definition {
-    pub(crate) position: Position,
-    pub(crate) text_document: TextDocument
+pub struct Definition {
+    pub position: Position,
+    pub text_document: TextDocument
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Formatting {
-    pub(crate) text_document: TextDocument
+pub struct Formatting {
+    pub text_document: TextDocument
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RenameParams {
-    pub(crate) text_document: TextDocument,
-    pub(crate) position: Position,
-    pub(crate) new_name: String
+pub struct RenameParams {
+    pub text_document: TextDocument,
+    pub position: Position,
+    pub new_name: String
 }
 
 // General objects
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct TextDocument {
-    pub(crate) text: Option<String>,
-    pub(crate) uri: String
+pub struct TextDocument {
+    pub text: Option<String>,
+    pub uri: String
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub(crate) struct Position {
-    pub(crate) line: usize,
-    pub(crate) character: usize
+pub struct Position {
+    pub line: usize,
+    pub character: usize
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub(crate) struct Range {
-    pub(crate) start: Position,
-    pub(crate) end: Position
+pub struct Range {
+    pub start: Position,
+    pub end: Position
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct Location {
-    pub(crate) uri: String,
-    pub(crate) range: Range
+pub struct Location {
+    pub uri: String,
+    pub range: Range
 }
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Change {
-    pub(crate) text: String
+pub struct Change {
+    pub text: String
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TextEdit {
-    pub(crate) range: Range,
-    pub(crate) new_text: String
+pub struct TextEdit {
+    pub range: Range,
+    pub new_text: String
 }
 
 // Response
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct Response<T> {
-    pub(crate) id: Option<usize>,
-    pub(crate) result: Option<T>,
-    pub(crate) error: Option<ResponseError>
+pub struct Response<T> {
+    pub id: Option<usize>,
+    pub result: Option<T>,
+    pub error: Option<ResponseError>
 }
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct ResponseError {
-    pub(crate) code: i32,
-    pub(crate) message: String
+pub struct ResponseError {
+    pub code: i32,
+    pub message: String
 }
 impl<T> Response<T> {
-    pub(crate) fn success(id: Option<usize>, result: T) -> Self {
+    pub fn success(id: Option<usize>, result: T) -> Self {
         Response {
             id,
             result: Some(result),
@@ -99,7 +99,7 @@ impl<T> Response<T> {
     }
 }
 impl Response<()> {
-    pub(crate) fn empty(id: Option<usize>) -> Self {
+    pub fn empty(id: Option<usize>) -> Self {
         Response {
             id,
             result: None,
@@ -114,7 +114,7 @@ impl Response<()> {
     // use the nice string error message.
     const UNKNOWN_ERROR_CODE: i32 = -32001;
 
-    pub(crate) fn error<E: fmt::Display>(id: Option<usize>, error: E) -> Self {
+    pub fn error<E: fmt::Display>(id: Option<usize>, error: E) -> Self {
         Response {
             id,
             result: None,
@@ -126,45 +126,45 @@ impl Response<()> {
     }
 }
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct Notification<T> {
-    pub(crate) method: String,
-    pub(crate) params: T
+pub struct Notification<T> {
+    pub method: String,
+    pub params: T
 }
 
 // Response types
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct InitializeResult {
-    pub(crate) capabilities: ServerCapabilities
+pub struct InitializeResult {
+    pub capabilities: ServerCapabilities
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ServerCapabilities {
-    pub(crate) completion_provider: CompletionOptions,
-    pub(crate) definition_provider: bool,
-    pub(crate) document_formatting_provider: bool
+pub struct ServerCapabilities {
+    pub completion_provider: CompletionOptions,
+    pub definition_provider: bool,
+    pub document_formatting_provider: bool
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CompletionOptions {
-    pub(crate) resolve_provider: bool
+pub struct CompletionOptions {
+    pub resolve_provider: bool
 }
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct DiagnosticParams {
-    pub(crate) uri: String,
-    pub(crate) diagnostics: Vec<Diagnostic>
+pub struct DiagnosticParams {
+    pub uri: String,
+    pub diagnostics: Vec<Diagnostic>
 }
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct Diagnostic {
-    pub(crate) range: Range,
-    pub(crate) severity: usize,
-    pub(crate) message: String
+pub struct Diagnostic {
+    pub range: Range,
+    pub severity: usize,
+    pub message: String
 }
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct CompletionItem {
-    pub(crate) label: String,
-    pub(crate) edit: TextEdit
+pub struct CompletionItem {
+    pub label: String,
+    pub edit: TextEdit
 }
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct WorkspaceEdit {
-    pub(crate) changes: BTreeMap<String, Vec<TextEdit>>
+pub struct WorkspaceEdit {
+    pub changes: BTreeMap<String, Vec<TextEdit>>
 }
