@@ -10,8 +10,7 @@ mod utils;
 use self::models::*;
 
 use failure::Error;
-use rnix::{parser::{AST, ParseError}, types::*};
-use rowan::WalkEvent;
+use rnix::{parser::*, types::*};
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
@@ -136,83 +135,21 @@ impl<'a, W: io::Write> App<'a, W> {
             },
             "textDocument/definition" => {
                 let params: Definition = serde_json::from_value(req.params)?;
-                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
-                    let offset = utils::lookup_pos(code, params.position)?;
-                    let (name, _) = utils::ident_at(code, offset);
-                    let (scopes, _) = utils::scope_for(ast.node().borrowed(), offset, name);
-
-                    //writeln!(self.log, "LOOKUP DEFINITION {:?} {:?} {:?}", offset, name, scopes)?;
-
-                    let response = if let Some(node) = scopes.var(name) {
-                        Some(Location {
-                            uri: params.text_document.uri,
-                            range: utils::range(code, node.range())
-                        })
-                    } else {
-                        None
-                    };
-                    self.send(&Response::success(req.id, response))?;
+                writeln!(self.log, "{:?}", params.text_document.uri)?;
+                if let Some(pos) = self.lookup_definition(params) {
+                    self.send(&Response::success(req.id, pos))?;
                 } else {
                     self.send(&Response::empty(req.id))?;
                 }
             },
             "textDocument/completion" => {
                 let params: Definition = serde_json::from_value(req.params)?;
-                let mut completions = Vec::new();
-
-                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
-                    let offset = utils::lookup_pos(code, params.position)?;
-
-                    let (name, range) = utils::ident_at(code, offset);
-                    let range = utils::range(code, range);
-                    let (scopes, _) = utils::scope_for(ast.node().borrowed(), offset, name);
-
-                    for scope in scopes.0.into_iter().rev() {
-                        for var in scope.keys() {
-                            if var.starts_with(&name) {
-                                completions.push(CompletionItem {
-                                    label: var.clone(),
-                                    edit: TextEdit {
-                                        range,
-                                        new_text: var.clone()
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-
+                let completions = self.completions(params).unwrap_or_default();
                 self.send(&Response::success(req.id, completions))?;
             },
             "textDocument/rename" => {
                 let params: RenameParams = serde_json::from_value(req.params)?;
-
-                let mut edits = Vec::new();
-
-                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
-                    let offset = utils::lookup_pos(code, params.position)?;
-                    let (old_name, _) = utils::ident_at(code, offset);
-                    let (_, node) = utils::scope_for(ast.node().borrowed(), offset, old_name);
-
-                    if let Some(node) = node {
-                        for event in node.borrowed().preorder() {
-                            if let WalkEvent::Enter(node) = event {
-                                if let Some(ident) = Ident::cast(node) {
-                                    if ident.as_str() == old_name {
-                                        edits.push(TextEdit {
-                                            range: utils::range(code, node.range()),
-                                            new_text: params.new_name.clone()
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let mut changes = BTreeMap::new();
-                changes.insert(params.text_document.uri, edits);
-
+                let changes = self.rename(params).unwrap_or_default();
                 self.send(&Response::success(req.id, WorkspaceEdit { changes }))?;
             }
             "textDocument/formatting" => {
@@ -227,6 +164,89 @@ impl<'a, W: io::Write> App<'a, W> {
             _ => ()
         }
         Ok(())
+    }
+    fn lookup_definition(&mut self, params: Definition) -> Option<Location> {
+        let (ast, code) = self.files.get_mut(&params.text_document.uri)?;
+        let offset = utils::lookup_pos(code, params.position)?;
+        let (name, scope) = utils::scope_for_ident(ast.node().borrowed(), offset)?;
+
+        let var = scope.get(name.as_str())?;
+        Some(Location {
+            uri: params.text_document.uri,
+            range: utils::range(code, var.key.range())
+        })
+    }
+    fn completions(&mut self, params: Definition) -> Option<Vec<CompletionItem>> {
+        let (ast, code) = self.files.get_mut(&params.text_document.uri)?;
+        let offset = utils::lookup_pos(code, params.position)?;
+
+        let (name, scope) = utils::scope_for_ident(ast.node().borrowed(), offset)?;
+
+        let mut completions = Vec::new();
+        for var in scope.keys() {
+            if var.starts_with(&name.as_str()) {
+                completions.push(CompletionItem {
+                    label: var.clone(),
+                    edit: TextEdit {
+                        range: utils::range(code, name.node().range()),
+                        new_text: var.clone()
+                    }
+                });
+            }
+        }
+        Some(completions)
+    }
+    fn rename(&mut self, params: RenameParams) -> Option<BTreeMap<String, Vec<TextEdit>>> {
+        let (ast, code) = self.files.get_mut(&params.text_document.uri)?;
+        let offset = utils::lookup_pos(code, params.position)?;
+        let info = utils::ident_at(ast.node().borrowed(), offset)?;
+        if !info.path.is_empty() {
+            // Renaming within a set not supported
+            return None;
+        }
+        let old = info.ident;
+        let scope = utils::scope_for(*old.node());
+
+        struct Rename<'a> {
+            edits: Vec<TextEdit>,
+            code: &'a str,
+            old: &'a str,
+            new_name: String,
+        }
+        fn rename_in_node(rename: &mut Rename, node: Node<rowan::RefRoot<Types>>) {
+            if let Some(ident) = Ident::cast(node) {
+                if ident.as_str() == rename.old {
+                    rename.edits.push(TextEdit {
+                        range: utils::range(rename.code, node.range()),
+                        new_text: rename.new_name.clone()
+                    });
+                }
+            } else if let Some(index) = IndexSet::cast(node) {
+                rename_in_node(rename, index.set());
+            } else if let Some(attr) = Attribute::cast(node) {
+                let mut path = attr.path();
+                if let Some(ident) = path.next() {
+                    rename_in_node(rename, ident);
+                }
+            } else {
+                for child in node.children() {
+                    rename_in_node(rename, child);
+                }
+            }
+        }
+
+        let mut rename = Rename {
+            edits: Vec::new(),
+            code,
+            old: old.as_str(),
+            new_name: params.new_name
+        };
+        let definition = scope.get(old.as_str())?;
+        rename_in_node(&mut rename, definition.set.borrowed());
+
+        let mut changes = BTreeMap::new();
+        changes.insert(params.text_document.uri, rename.edits);
+        Some(changes)
     }
     fn send_diagnostics(&mut self, uri: String, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();

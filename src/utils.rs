@@ -1,19 +1,15 @@
 use super::models::*;
 
-use failure::Error;
 use rnix::{parser::*, types::*};
-use rowan::{TextRange, TextUnit, WalkEvent};
-use std::{
-    collections::HashMap,
-    borrow::Borrow
-};
+use rowan::{LeafAtOffset, TextRange, TextUnit};
+use std::collections::HashMap;
 
-pub fn lookup_pos(code: &str, pos: Position) -> Result<usize, Error> {
+pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
     let mut lines = code.split('\n');
 
     let mut offset = 0;
     for _ in 0..pos.line {
-        let line = lines.next().ok_or_else(|| format_err!("invalid position"))?;
+        let line = lines.next()?;
         offset += line.len() + 1;
     }
 
@@ -27,7 +23,6 @@ pub fn lookup_pos(code: &str, pos: Position) -> Result<usize, Error> {
                         .sum::<usize>()
             )
         })
-        .ok_or_else(|| format_err!("invalid position"))
 }
 pub fn offset_to_pos(code: &str, offset: usize) -> Position {
     let start_of_line = code[..offset].rfind('\n').map(|n| n+1).unwrap_or(0);
@@ -42,93 +37,139 @@ pub fn range(code: &str, range: TextRange) -> Range {
         end: offset_to_pos(code, range.end().to_usize()),
     }
 }
-pub fn ident_at(code: &str, offset: usize) -> (&str, TextRange) {
-    fn is_ident(c: &char) -> bool {
-        match *c {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => true,
-            _ => false
-        }
-    }
-
-    let start: usize = offset -
-        code[..offset].chars().rev()
-            .take_while(is_ident)
-            .map(char::len_utf8)
-            .sum::<usize>();
-    let end = offset + code[offset..].chars()
-            .take_while(is_ident)
-            .map(char::len_utf8)
-            .sum::<usize>();
-    (&code[start..end], TextRange::from_to(TextUnit::from_usize(start), TextUnit::from_usize(end)))
+pub struct CursorInfo<'a> {
+    pub path: Vec<String>,
+    pub ident: Ident<rowan::RefRoot<'a, Types>>
 }
-
-#[derive(Debug, Default)]
-pub struct Scopes<'a>(pub Vec<HashMap<String, Node<rowan::RefRoot<'a, Types>>>>);
-impl<'a> Scopes<'a> {
-    pub fn var(&self, name: &str) -> Option<&Node<rowan::RefRoot<'a, Types>>> {
-        self.0.iter().rev()
-            .filter_map(|scope| scope.get(name))
-            .next()
-    }
-    pub fn populate<T: EntryHolder<rowan::RefRoot<'a, Types>>>(&mut self, set: &T) {
-        let mut map = HashMap::new();
-        for entry in set.entries() {
-            let attr = entry.key();
-            let mut path = attr.path();
-            if let Some(ident) = path.next().and_then(Ident::cast) {
-                map.insert(ident.as_str().into(), *ident.node());
+pub fn ident_at(root: Node<rowan::RefRoot<Types>>, offset: usize) -> Option<CursorInfo> {
+    let ident = match root.leaf_at_offset(TextUnit::from_usize(offset)) {
+        LeafAtOffset::None => None,
+        LeafAtOffset::Single(node) => Ident::cast(node),
+        LeafAtOffset::Between(left, right) => Ident::cast(left).or_else(|| Ident::cast(right))
+    }?;
+    let parent = ident.node().parent();
+    if let Some(attr) = parent.and_then(Attribute::cast) {
+        let mut path = Vec::new();
+        for item in attr.path() {
+            if item == *ident.node() {
+                return Some(CursorInfo {
+                    path,
+                    ident
+                });
             }
+
+            path.push(Ident::cast(item)?.as_str().into());
         }
-        self.0.push(map);
+        panic!("identifier at cursor is somehow not a child of its parent");
+    } else if let Some(mut index) = parent.and_then(IndexSet::cast) {
+        let mut path = Vec::new();
+        while let Some(new) = IndexSet::cast(index.set()) {
+            path.push(Ident::cast(new.index())?.as_str().into());
+            index = new;
+        }
+        if index.set() != *ident.node() {
+            // Only push if not the cursor ident, so that
+            // a . b
+            //  ^
+            // is not [a] and a, but rather [] and a
+            path.push(Ident::cast(index.set())?.as_str().into());
+        }
+        path.reverse();
+        Some(CursorInfo {
+            path,
+            ident
+        })
+    } else {
+        Some(CursorInfo {
+            path: Vec::new(),
+            ident
+        })
     }
 }
 
-pub fn scope_for<'a>(node: Node<rowan::RefRoot<'a, Types>>, offset: usize, name: &str)
-    -> (Scopes<'a>, Option<Node<rowan::RefRoot<'a, Types>>>)
+#[derive(Debug)]
+pub struct Var {
+    pub set: Node<rowan::OwnedRoot<Types>>,
+    pub key: Node<rowan::OwnedRoot<Types>>,
+    pub value: Option<Node<rowan::OwnedRoot<Types>>>
+}
+pub fn scope_for_ident(root: Node<rowan::RefRoot<Types>>, offset: usize)
+    -> Option<(Ident<rowan::RefRoot<Types>>, HashMap<String, Var>)>
 {
-    let mut scopes = Scopes::default();
-
-    for event in node.borrow().preorder() {
-        match event {
-            WalkEvent::Enter(node) => {
-                if let Some(let_in) = LetIn::cast(node) {
-                    scopes.populate(&let_in);
-                } else if let Some(let_) = Let::cast(node) {
-                    scopes.populate(&let_);
-                } else if let Some(set) = Set::cast(node) {
-                    if set.recursive() {
-                        scopes.populate(&set);
-                    }
-                } else if let Some(lambda) = Lambda::cast(node) {
-                    let mut map = HashMap::new();
-                    if let Some(ident) = Ident::cast(lambda.arg()) {
-                        map.insert(ident.as_str().into(), *ident.node());
-                    } else if let Some(pattern) = Pattern::cast(lambda.arg()) {
-                        for entry in pattern.entries() {
-                            let ident = entry.name();
-                            map.insert(ident.as_str().into(), *ident.node());
-                        }
-                    }
-                    scopes.0.push(map);
-                }
-            },
-            WalkEvent::Leave(node) => {
-                let range = node.range();
-                if LetIn::cast(node).is_some()
-                        || Let::cast(node).is_some()
-                        || Set::cast(node).map(|set| set.recursive()).unwrap_or(false)
-                        || Lambda::cast(node).is_some() {
-                    if scopes.0.last().unwrap().contains_key(name)
-                            && offset >= range.start().to_usize()
-                            && offset < range.end().to_usize() {
-                        // We found the offset, return all scopes at this point
-                        return (scopes, Some(node));
-                    }
-                    scopes.0.pop().unwrap();
-                }
+    let info = ident_at(root, offset)?;
+    let ident = info.ident;
+    let mut entries = scope_for(*ident.node());
+    for var in info.path {
+        let node = entries.get(&var)?.value.as_ref()?.borrowed();
+        entries = scope_from_node(node);
+    }
+    Some((ident, entries))
+}
+fn populate<'a, T: EntryHolder<rowan::RefRoot<'a, Types>>>(
+    scope: &mut HashMap<String, Var>,
+    set: &T
+) {
+    for entry in set.entries() {
+        let attr = entry.key();
+        let mut path = attr.path();
+        if let Some(ident) = path.next().and_then(Ident::cast) {
+            if !scope.contains_key(ident.as_str()) {
+                scope.insert(ident.as_str().into(), Var {
+                    set: set.node().owned(),
+                    key: ident.node().owned(),
+                    value: Some(entry.value().owned())
+                });
             }
         }
     }
+}
+pub fn scope_for(node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
+    let mut scope = HashMap::new();
 
-    (scopes, None)
+    let mut current = Some(node);
+    while let Some(node) = current {
+        if let Some(let_in) = LetIn::cast(node) {
+            populate(&mut scope, &let_in);
+        } else if let Some(let_) = Let::cast(node) {
+            populate(&mut scope, &let_);
+        } else if let Some(set) = Set::cast(node) {
+            if set.recursive() {
+                populate(&mut scope, &set);
+            }
+        } else if let Some(lambda) = Lambda::cast(node) {
+            if let Some(ident) = Ident::cast(lambda.arg()) {
+                if !scope.contains_key(ident.as_str()) {
+                    scope.insert(ident.as_str().into(), Var {
+                        set: lambda.node().owned(),
+                        key: ident.node().owned(),
+                        value: None
+                    });
+                }
+            } else if let Some(pattern) = Pattern::cast(lambda.arg()) {
+                for entry in pattern.entries() {
+                    let ident = entry.name();
+                    if !scope.contains_key(ident.as_str()) {
+                        scope.insert(ident.as_str().into(), Var {
+                            set: lambda.node().owned(),
+                            key: ident.node().owned(),
+                            value: None
+                        });
+                    }
+                }
+            }
+        }
+        current = node.parent();
+    }
+
+    scope
+}
+pub fn scope_from_node(mut node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
+    let mut scope = HashMap::new();
+    if let Some(entry) = SetEntry::cast(node) {
+        node = entry.value();
+    }
+    if let Some(set) = Set::cast(node) {
+        populate(&mut scope, &set);
+    }
+    scope
 }
