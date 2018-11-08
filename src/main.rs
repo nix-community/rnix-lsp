@@ -4,6 +4,7 @@
 #[macro_use] extern crate serde_derive;
 
 mod format;
+mod lookup;
 mod models;
 mod utils;
 
@@ -16,8 +17,10 @@ use std::{
     fmt,
     fs::File,
     io::{self, prelude::*},
-    panic
+    panic,
+    rc::Rc
 };
+use url::Url;
 
 fn main() -> Result<(), Error> {
     let mut log = File::create("/tmp/nix-lsp.log")?;
@@ -156,7 +159,7 @@ impl<'a, W: io::Write> App<'a, W> {
                 let params: Formatting = serde_json::from_value(req.params)?;
 
                 let mut edits = None;
-                if let Some((ast, code)) = self.files.get_mut(&params.text_document.uri) {
+                if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
                     edits = Some(format::format(code, ast.node().borrowed()));
                 }
                 self.send(&Response::success(req.id, edits.unwrap_or_default()))?;
@@ -166,21 +169,28 @@ impl<'a, W: io::Write> App<'a, W> {
         Ok(())
     }
     fn lookup_definition(&mut self, params: Definition) -> Option<Location> {
-        let (ast, code) = self.files.get_mut(&params.text_document.uri)?;
+        let uri = Url::parse(&params.text_document.uri).ok()?;
+        let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
-        let (name, scope) = utils::scope_for_ident(ast.node().borrowed(), offset)?;
+        let (name, scope) = self.scope_for_ident(uri, ast.node().owned(), offset)?;
 
         let var = scope.get(name.as_str())?;
+        let uri = var.file.to_string();
+        let (_ast, code) = self.files.get(&uri)?;
         Some(Location {
-            uri: params.text_document.uri,
+            uri,
             range: utils::range(code, var.key.range())
         })
     }
     fn completions(&mut self, params: Definition) -> Option<Vec<CompletionItem>> {
-        let (ast, code) = self.files.get_mut(&params.text_document.uri)?;
+        let uri = Url::parse(&params.text_document.uri).ok()?;
+        let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
 
-        let (name, scope) = utils::scope_for_ident(ast.node().borrowed(), offset)?;
+        let (name, scope) = self.scope_for_ident(uri, ast.node().owned(), offset)?;
+
+        // Re-open, because scope_for_ident may mutably borrow
+        let (_ast, code) = self.files.get(&params.text_document.uri)?;
 
         let mut completions = Vec::new();
         for var in scope.keys() {
@@ -197,7 +207,8 @@ impl<'a, W: io::Write> App<'a, W> {
         Some(completions)
     }
     fn rename(&mut self, params: RenameParams) -> Option<BTreeMap<String, Vec<TextEdit>>> {
-        let (ast, code) = self.files.get_mut(&params.text_document.uri)?;
+        let uri = Url::parse(&params.text_document.uri).ok()?;
+        let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
         let info = utils::ident_at(ast.node().borrowed(), offset)?;
         if !info.path.is_empty() {
@@ -205,7 +216,7 @@ impl<'a, W: io::Write> App<'a, W> {
             return None;
         }
         let old = info.ident;
-        let scope = utils::scope_for(*old.node());
+        let scope = utils::scope_for(&Rc::new(uri), *old.node());
 
         struct Rename<'a> {
             edits: Vec<TextEdit>,

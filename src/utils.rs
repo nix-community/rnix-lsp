@@ -2,8 +2,19 @@ use super::models::*;
 
 use rnix::{parser::*, types::*};
 use rowan::{LeafAtOffset, TextRange, TextUnit};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    rc::Rc
+};
+use url::Url;
 
+pub fn uri_path(uri: &Url) -> Option<PathBuf> {
+    if uri.scheme() != "file" || uri.has_host() {
+        return None;
+    }
+    Some(PathBuf::from(uri.path()))
+}
 pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
     let mut lines = code.split('\n');
 
@@ -89,23 +100,13 @@ pub fn ident_at(root: Node<rowan::RefRoot<Types>>, offset: usize) -> Option<Curs
 
 #[derive(Debug)]
 pub struct Var {
+    pub file: Rc<Url>,
     pub set: Node<rowan::OwnedRoot<Types>>,
     pub key: Node<rowan::OwnedRoot<Types>>,
     pub value: Option<Node<rowan::OwnedRoot<Types>>>
 }
-pub fn scope_for_ident(root: Node<rowan::RefRoot<Types>>, offset: usize)
-    -> Option<(Ident<rowan::RefRoot<Types>>, HashMap<String, Var>)>
-{
-    let info = ident_at(root, offset)?;
-    let ident = info.ident;
-    let mut entries = scope_for(*ident.node());
-    for var in info.path {
-        let node = entries.get(&var)?.value.as_ref()?.borrowed();
-        entries = scope_from_node(node);
-    }
-    Some((ident, entries))
-}
-fn populate<'a, T: EntryHolder<rowan::RefRoot<'a, Types>>>(
+pub fn populate<'a, T: EntryHolder<rowan::RefRoot<'a, Types>>>(
+    file: &Rc<Url>,
     scope: &mut HashMap<String, Var>,
     set: &T
 ) {
@@ -115,6 +116,7 @@ fn populate<'a, T: EntryHolder<rowan::RefRoot<'a, Types>>>(
         if let Some(ident) = path.next().and_then(Ident::cast) {
             if !scope.contains_key(ident.as_str()) {
                 scope.insert(ident.as_str().into(), Var {
+                    file: Rc::clone(file),
                     set: set.node().owned(),
                     key: ident.node().owned(),
                     value: Some(entry.value().owned())
@@ -123,23 +125,24 @@ fn populate<'a, T: EntryHolder<rowan::RefRoot<'a, Types>>>(
         }
     }
 }
-pub fn scope_for(node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
+pub fn scope_for(file: &Rc<Url>, node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
     let mut scope = HashMap::new();
 
     let mut current = Some(node);
     while let Some(node) = current {
         if let Some(let_in) = LetIn::cast(node) {
-            populate(&mut scope, &let_in);
+            populate(&file, &mut scope, &let_in);
         } else if let Some(let_) = Let::cast(node) {
-            populate(&mut scope, &let_);
+            populate(&file, &mut scope, &let_);
         } else if let Some(set) = Set::cast(node) {
             if set.recursive() {
-                populate(&mut scope, &set);
+                populate(&file, &mut scope, &set);
             }
         } else if let Some(lambda) = Lambda::cast(node) {
             if let Some(ident) = Ident::cast(lambda.arg()) {
                 if !scope.contains_key(ident.as_str()) {
                     scope.insert(ident.as_str().into(), Var {
+                        file: Rc::clone(&file),
                         set: lambda.node().owned(),
                         key: ident.node().owned(),
                         value: None
@@ -150,6 +153,7 @@ pub fn scope_for(node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
                     let ident = entry.name();
                     if !scope.contains_key(ident.as_str()) {
                         scope.insert(ident.as_str().into(), Var {
+                            file: Rc::clone(&file),
                             set: lambda.node().owned(),
                             key: ident.node().owned(),
                             value: None
@@ -161,15 +165,5 @@ pub fn scope_for(node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
         current = node.parent();
     }
 
-    scope
-}
-pub fn scope_from_node(mut node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
-    let mut scope = HashMap::new();
-    if let Some(entry) = SetEntry::cast(node) {
-        node = entry.value();
-    }
-    if let Some(set) = Set::cast(node) {
-        populate(&mut scope, &set);
-    }
     scope
 }
