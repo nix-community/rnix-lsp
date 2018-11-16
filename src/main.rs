@@ -113,6 +113,10 @@ impl<'a, W: io::Write> App<'a, W> {
             "initialize" => self.send(&Response::success(req.id, Some(
                 InitializeResult {
                     capabilities: ServerCapabilities {
+                        text_document_sync: TextDocumentSyncOptions {
+                            open_close: true,
+                            change: 1, // 1 = send full text on modification
+                        },
                         completion_provider: CompletionOptions {
                             resolve_provider: true
                         },
@@ -164,6 +168,27 @@ impl<'a, W: io::Write> App<'a, W> {
                 }
                 self.send(&Response::success(req.id, edits.unwrap_or_default()))?;
             },
+            // LSP does not have extend-selection built-in, so we namespace it
+            // under nix-lsp, as a custom protocol extension.
+            //
+            // Extend selection takes a document and a number of ranges in the
+            // doc. It returns a vector of "extended" ranges, where extended
+            // means "encompassing syntax node".
+            "nix-lsp/extendSelection" => {
+                let params: ExtendSelectionParams = serde_json::from_value(req.params)?;
+                let mut selections = Vec::new();
+                if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
+                    for sel in params.selections {
+                        let mut extended = sel;
+                        if let Some(range) = utils::lookup_range(code, sel) {
+                            let extended_range = utils::extend(ast.node().borrowed(), range);
+                            extended = utils::range(code, extended_range);
+                        }
+                        selections.push(extended);
+                    }
+                }
+                self.send(&Response::success(req.id, selections))?;
+            }
             _ => ()
         }
         Ok(())
