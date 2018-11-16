@@ -44,6 +44,12 @@ pub struct RenameParams {
     pub position: Position,
     pub new_name: String
 }
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtendSelectionParams {
+    pub text_document: TextDocument,
+    pub selections: Vec<Range>,
+}
 
 // General objects
 #[derive(Clone, Debug, Deserialize)]
@@ -139,9 +145,16 @@ pub struct InitializeResult {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
+    pub text_document_sync: TextDocumentSyncOptions,
     pub completion_provider: CompletionOptions,
     pub definition_provider: bool,
     pub document_formatting_provider: bool
+}
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentSyncOptions {
+    pub open_close: bool,
+    pub change: u32,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
