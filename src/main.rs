@@ -84,7 +84,7 @@ impl<'a, W: io::Write> App<'a, W> {
             let req = match req {
                 Ok(req) => req,
                 Err(err) => {
-                    writeln!(self.log, "{:?}", err);
+                    writeln!(self.log, "{:?}", err)?;
                     self.send(&Response::error(None, err))?;
                     continue;
                 }
@@ -92,7 +92,7 @@ impl<'a, W: io::Write> App<'a, W> {
 
             let id = req.id;
             if let Err(err) = self.handle_request(req) {
-                writeln!(self.log, "{:?}", err);
+                writeln!(self.log, "{:?}", err)?;
                 self.send(&Response::error(id, err))?;
             }
         }
