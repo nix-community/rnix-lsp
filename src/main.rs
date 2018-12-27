@@ -164,7 +164,7 @@ impl<'a, W: io::Write> App<'a, W> {
 
                 let mut edits = None;
                 if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
-                    edits = Some(format::format(code, ast.node().borrowed()));
+                    edits = Some(format::format(code, ast.node()));
                 }
                 self.send(&Response::success(req.id, edits.unwrap_or_default()))?;
             },
@@ -181,7 +181,7 @@ impl<'a, W: io::Write> App<'a, W> {
                     for sel in params.selections {
                         let mut extended = sel;
                         if let Some(range) = utils::lookup_range(code, sel) {
-                            let extended_range = utils::extend(ast.node().borrowed(), range);
+                            let extended_range = utils::extend(ast.node(), range);
                             extended = utils::range(code, extended_range);
                         }
                         selections.push(extended);
@@ -197,7 +197,8 @@ impl<'a, W: io::Write> App<'a, W> {
         let uri = Url::parse(&params.text_document.uri).ok()?;
         let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
-        let (name, scope) = self.scope_for_ident(uri, ast.node().owned(), offset)?;
+        let node = ast.node().to_owned();
+        let (name, scope) = self.scope_for_ident(uri, &node, offset)?;
 
         let var = scope.get(name.as_str())?;
         let uri = var.file.to_string();
@@ -212,7 +213,8 @@ impl<'a, W: io::Write> App<'a, W> {
         let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
 
-        let (name, scope) = self.scope_for_ident(uri, ast.node().owned(), offset)?;
+        let node = ast.node().to_owned();
+        let (name, scope) = self.scope_for_ident(uri, &node, offset)?;
 
         // Re-open, because scope_for_ident may mutably borrow
         let (_ast, code) = self.files.get(&params.text_document.uri)?;
@@ -235,13 +237,13 @@ impl<'a, W: io::Write> App<'a, W> {
         let uri = Url::parse(&params.text_document.uri).ok()?;
         let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
-        let info = utils::ident_at(ast.node().borrowed(), offset)?;
+        let info = utils::ident_at(ast.node(), offset)?;
         if !info.path.is_empty() {
             // Renaming within a set not supported
             return None;
         }
         let old = info.ident;
-        let scope = utils::scope_for(&Rc::new(uri), *old.node());
+        let scope = utils::scope_for(&Rc::new(uri), old.node());
 
         struct Rename<'a> {
             edits: Vec<TextEdit>,
@@ -249,7 +251,7 @@ impl<'a, W: io::Write> App<'a, W> {
             old: &'a str,
             new_name: String,
         }
-        fn rename_in_node(rename: &mut Rename, node: Node<rowan::RefRoot<Types>>) {
+        fn rename_in_node(rename: &mut Rename, node: &Node) {
             if let Some(ident) = Ident::cast(node) {
                 if ident.as_str() == rename.old {
                     rename.edits.push(TextEdit {
@@ -278,7 +280,7 @@ impl<'a, W: io::Write> App<'a, W> {
             new_name: params.new_name
         };
         let definition = scope.get(old.as_str())?;
-        rename_in_node(&mut rename, definition.set.borrowed());
+        rename_in_node(&mut rename, &definition.set);
 
         let mut changes = BTreeMap::new();
         changes.insert(params.text_document.uri, rename.edits);
@@ -305,3 +307,4 @@ impl<'a, W: io::Write> App<'a, W> {
         })
     }
 }
+

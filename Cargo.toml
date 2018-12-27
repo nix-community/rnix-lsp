@@ -4,15 +4,10 @@ edition = "2018"
 name = "nix-lsp"
 version = "0.1.0"
 [dependencies]
-failure = "0.1.2"
-serde = "1.0.71"
-serde_derive = "1.0.74"
-serde_json = "1.0.26"
+failure = "0.1.5"
+rnix = "0.5.1"
+rowan = "0.3.2"
+serde = "1.0.85"
+serde_derive = "1.0.85"
+serde_json = "1.0.37"
 url = "1.7.2"
-
-[dependencies.rnix]
-branch = "rowan"
-git = "https://gitlab.com/jD91mZM2/rnix"
-
-[dependencies.rowan]
-git = "https://github.com/matklad/rowan"

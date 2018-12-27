@@ -1,7 +1,7 @@
 use super::models::*;
 
 use rnix::{parser::*, types::*};
-use rowan::{LeafAtOffset, TextRange, TextUnit};
+use rowan::{LeafAtOffset, TextRange, TextUnit, TreeArc};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -59,9 +59,9 @@ pub fn range(code: &str, range: TextRange) -> Range {
 }
 pub struct CursorInfo<'a> {
     pub path: Vec<String>,
-    pub ident: Ident<rowan::RefRoot<'a, Types>>
+    pub ident: &'a Ident
 }
-pub fn ident_at(root: Node<rowan::RefRoot<Types>>, offset: usize) -> Option<CursorInfo> {
+pub fn ident_at(root: &Node, offset: usize) -> Option<CursorInfo> {
     let ident = match root.leaf_at_offset(TextUnit::from_usize(offset)) {
         LeafAtOffset::None => None,
         LeafAtOffset::Single(node) => Ident::cast(node),
@@ -71,7 +71,7 @@ pub fn ident_at(root: Node<rowan::RefRoot<Types>>, offset: usize) -> Option<Curs
     if let Some(attr) = parent.and_then(Attribute::cast) {
         let mut path = Vec::new();
         for item in attr.path() {
-            if item == *ident.node() {
+            if item == ident.node() {
                 return Some(CursorInfo {
                     path,
                     ident
@@ -87,7 +87,7 @@ pub fn ident_at(root: Node<rowan::RefRoot<Types>>, offset: usize) -> Option<Curs
             path.push(Ident::cast(new.index())?.as_str().into());
             index = new;
         }
-        if index.set() != *ident.node() {
+        if index.set() != ident.node() {
             // Only push if not the cursor ident, so that
             // a . b
             //  ^
@@ -110,11 +110,11 @@ pub fn ident_at(root: Node<rowan::RefRoot<Types>>, offset: usize) -> Option<Curs
 #[derive(Debug)]
 pub struct Var {
     pub file: Rc<Url>,
-    pub set: Node<rowan::OwnedRoot<Types>>,
-    pub key: Node<rowan::OwnedRoot<Types>>,
-    pub value: Option<Node<rowan::OwnedRoot<Types>>>
+    pub set: TreeArc<Types, Node>,
+    pub key: TreeArc<Types, Node>,
+    pub value: Option<TreeArc<Types, Node>>
 }
-pub fn populate<'a, T: EntryHolder<rowan::RefRoot<'a, Types>>>(
+pub fn populate<'a, T: EntryHolder>(
     file: &Rc<Url>,
     scope: &mut HashMap<String, Var>,
     set: &T
@@ -126,34 +126,34 @@ pub fn populate<'a, T: EntryHolder<rowan::RefRoot<'a, Types>>>(
             if !scope.contains_key(ident.as_str()) {
                 scope.insert(ident.as_str().into(), Var {
                     file: Rc::clone(file),
-                    set: set.node().owned(),
-                    key: ident.node().owned(),
-                    value: Some(entry.value().owned())
+                    set: set.node().to_owned(),
+                    key: ident.node().to_owned(),
+                    value: Some(entry.value().to_owned())
                 });
             }
         }
     }
 }
-pub fn scope_for(file: &Rc<Url>, node: Node<rowan::RefRoot<Types>>) -> HashMap<String, Var> {
+pub fn scope_for(file: &Rc<Url>, node: &Node) -> HashMap<String, Var> {
     let mut scope = HashMap::new();
 
     let mut current = Some(node);
     while let Some(node) = current {
         if let Some(let_in) = LetIn::cast(node) {
-            populate(&file, &mut scope, &let_in);
+            populate(&file, &mut scope, let_in);
         } else if let Some(let_) = Let::cast(node) {
-            populate(&file, &mut scope, &let_);
+            populate(&file, &mut scope, let_);
         } else if let Some(set) = Set::cast(node) {
             if set.recursive() {
-                populate(&file, &mut scope, &set);
+                populate(&file, &mut scope, set);
             }
         } else if let Some(lambda) = Lambda::cast(node) {
             if let Some(ident) = Ident::cast(lambda.arg()) {
                 if !scope.contains_key(ident.as_str()) {
                     scope.insert(ident.as_str().into(), Var {
                         file: Rc::clone(&file),
-                        set: lambda.node().owned(),
-                        key: ident.node().owned(),
+                        set: lambda.node().to_owned(),
+                        key: ident.node().to_owned(),
                         value: None
                     });
                 }
@@ -163,8 +163,8 @@ pub fn scope_for(file: &Rc<Url>, node: Node<rowan::RefRoot<Types>>) -> HashMap<S
                     if !scope.contains_key(ident.as_str()) {
                         scope.insert(ident.as_str().into(), Var {
                             file: Rc::clone(&file),
-                            set: lambda.node().owned(),
-                            key: ident.node().owned(),
+                            set: lambda.node().to_owned(),
+                            key: ident.node().to_owned(),
                             value: None
                         });
                     }
@@ -177,7 +177,7 @@ pub fn scope_for(file: &Rc<Url>, node: Node<rowan::RefRoot<Types>>) -> HashMap<S
     scope
 }
 
-pub fn extend(root: Node<rowan::RefRoot<Types>>, range: TextRange) -> TextRange {
+pub fn extend(root: &Node, range: TextRange) -> TextRange {
     let node = root.covering_node(range);
 
     match node.ancestors().skip_while(|n| n.range() == range).next() {

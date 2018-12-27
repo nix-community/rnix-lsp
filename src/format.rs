@@ -3,7 +3,7 @@ use super::{models::*, utils};
 use rnix::{parser::*, tokenizer::Token, types::*};
 use rowan::{SmolStr, WalkEvent};
 
-fn find_whitespace<'a>(mut node: Node<rowan::RefRoot<'a, Types>>) -> Option<Node<rowan::RefRoot<'a, Types>>> {
+fn find_whitespace<'a>(mut node: &Node) -> Option<&Node> {
     loop {
         let new = node.prev_sibling();
         if let Some(new) = new {
@@ -19,7 +19,7 @@ fn find_whitespace<'a>(mut node: Node<rowan::RefRoot<'a, Types>>) -> Option<Node
         _ => None
     }
 }
-fn do_indent(code: &str, edits: &mut Vec<TextEdit>, node: Node<rowan::RefRoot<Types>>, indent: usize) {
+fn do_indent(code: &str, edits: &mut Vec<TextEdit>, node: &Node, indent: usize) {
     match find_whitespace(node) {
         Some(ws) => {
             let newlines = ws.leaf_text().map(SmolStr::as_str).unwrap_or_default()
@@ -43,7 +43,7 @@ fn do_indent(code: &str, edits: &mut Vec<TextEdit>, node: Node<rowan::RefRoot<Ty
         }
     }
 }
-pub fn format(code: &str, node: Node<rowan::RefRoot<Types>>) -> Vec<TextEdit> {
+pub fn format(code: &str, node: &Node) -> Vec<TextEdit> {
     let mut indent = 0;
     let mut edits = Vec::new();
 
