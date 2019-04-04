@@ -59,15 +59,18 @@ impl<'a, W: io::Write> App<'a, W> {
             let mut line = String::new();
 
             loop {
+                line.clear();
                 stdin.read_line(&mut line)?;
 
+                let line = line.trim();
+
                 let mut parts = line.split(':');
-                match (parts.next().map(str::trim), parts.next().map(str::trim)) {
-                    (Some("Content-Length"), Some(x)) => length = Some(x.parse()?),
+                match (parts.next(), parts.next()) {
+                    (Some("Content-Length"), Some(x)) => length = Some(x.trim().parse()?),
                     _ => ()
                 }
 
-                if line.is_empty() || line.ends_with("\r\n\r\n") {
+                if line.is_empty() {
                     break;
                 }
             }
