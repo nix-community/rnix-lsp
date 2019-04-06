@@ -1,10 +1,9 @@
+use lsp_types::{Position, Range, TextDocumentItem};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
     fmt
 };
-
-pub const ERROR: usize = 1;
 
 // Request
 #[derive(Clone, Debug, Deserialize)]
@@ -17,61 +16,36 @@ pub struct Request {
 // Request params
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DidOpen {
-    pub text_document: TextDocument
-}
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DidChange {
     pub content_changes: Vec<Change>,
-    pub text_document: TextDocument
+    pub text_document: TextDocumentItem
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Definition {
     pub position: Position,
-    pub text_document: TextDocument
+    pub text_document: TextDocumentItem
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Formatting {
-    pub text_document: TextDocument
+    pub text_document: TextDocumentItem
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameParams {
-    pub text_document: TextDocument,
+    pub text_document: TextDocumentItem,
     pub position: Position,
     pub new_name: String
 }
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtendSelectionParams {
-    pub text_document: TextDocument,
+    pub text_document: TextDocumentItem,
     pub selections: Vec<Range>,
 }
 
 // General objects
-#[derive(Clone, Debug, Deserialize)]
-pub struct TextDocument {
-    pub text: Option<String>,
-    pub uri: String
-}
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct Position {
-    pub line: usize,
-    pub character: usize
-}
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct Range {
-    pub start: Position,
-    pub end: Position
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Location {
-    pub uri: String,
-    pub range: Range
-}
 #[derive(Clone, Debug, Deserialize)]
 pub struct Change {
     pub text: String
@@ -86,6 +60,7 @@ pub struct TextEdit {
 // Response
 #[derive(Clone, Debug, Serialize)]
 pub struct Response<T> {
+    pub jsonrpc: &'static str,
     pub id: Option<usize>,
     pub result: Option<T>,
     pub error: Option<ResponseError>
@@ -98,6 +73,7 @@ pub struct ResponseError {
 impl<T> Response<T> {
     pub fn success(id: Option<usize>, result: T) -> Self {
         Response {
+            jsonrpc: "2.0",
             id,
             result: Some(result),
             error: None
@@ -107,6 +83,7 @@ impl<T> Response<T> {
 impl Response<()> {
     pub fn empty(id: Option<usize>) -> Self {
         Response {
+            jsonrpc: "2.0",
             id,
             result: None,
             error: None
@@ -122,6 +99,7 @@ impl Response<()> {
 
     pub fn error<E: fmt::Display>(id: Option<usize>, error: E) -> Self {
         Response {
+            jsonrpc: "2.0",
             id,
             result: None,
             error: Some(ResponseError {
@@ -133,34 +111,12 @@ impl Response<()> {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Notification<T> {
+    pub jsonrpc: &'static str,
     pub method: String,
     pub params: T
 }
 
 // Response types
-#[derive(Clone, Debug, Serialize)]
-pub struct InitializeResult {
-    pub capabilities: ServerCapabilities
-}
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerCapabilities {
-    pub text_document_sync: TextDocumentSyncOptions,
-    pub completion_provider: CompletionOptions,
-    pub definition_provider: bool,
-    pub document_formatting_provider: bool
-}
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TextDocumentSyncOptions {
-    pub open_close: bool,
-    pub change: u32,
-}
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompletionOptions {
-    pub resolve_provider: bool
-}
 #[derive(Clone, Debug, Serialize)]
 pub struct DiagnosticParams {
     pub uri: String,

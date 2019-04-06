@@ -1,5 +1,4 @@
-use super::models::*;
-
+use lsp_types::Url;
 use rnix::{parser::*, types::*};
 use rowan::{LeafAtOffset, TextRange, TextUnit, TreeArc};
 use std::{
@@ -7,7 +6,6 @@ use std::{
     path::PathBuf,
     rc::Rc
 };
-use url::Url;
 
 pub fn uri_path(uri: &Url) -> Option<PathBuf> {
     if uri.scheme() != "file" || uri.has_host() {
@@ -15,7 +13,7 @@ pub fn uri_path(uri: &Url) -> Option<PathBuf> {
     }
     Some(PathBuf::from(uri.path()))
 }
-pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
+pub fn lookup_pos(code: &str, pos: lsp_types::Position) -> Option<usize> {
     let mut lines = code.split('\n');
 
     let mut offset = 0;
@@ -29,13 +27,13 @@ pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
             Some(
                 offset +
                     line.chars()
-                        .take(pos.character)
+                        .take(pos.character as usize)
                         .map(char::len_utf8)
                         .sum::<usize>()
             )
         })
 }
-pub fn lookup_range(code: &str, range: Range) -> Option<TextRange> {
+pub fn lookup_range(code: &str, range: lsp_types::Range) -> Option<TextRange> {
     let start = lookup_pos(code, range.start)?;
     let end = lookup_pos(code, range.end)?;
     let res = TextRange::from_to(
@@ -44,15 +42,15 @@ pub fn lookup_range(code: &str, range: Range) -> Option<TextRange> {
     );
     Some(res)
 }
-pub fn offset_to_pos(code: &str, offset: usize) -> Position {
+pub fn offset_to_pos(code: &str, offset: usize) -> lsp_types::Position {
     let start_of_line = code[..offset].rfind('\n').map(|n| n+1).unwrap_or(0);
-    Position {
-        line: code[..start_of_line].chars().filter(|&c| c == '\n').count(),
-        character: code[start_of_line..offset].chars().map(|c| c.len_utf16()).sum()
+    lsp_types::Position {
+        line: code[..start_of_line].chars().filter(|&c| c == '\n').count() as u64,
+        character: code[start_of_line..offset].chars().map(|c| c.len_utf16() as u64).sum()
     }
 }
-pub fn range(code: &str, range: TextRange) -> Range {
-    Range {
+pub fn range(code: &str, range: TextRange) -> lsp_types::Range {
+    lsp_types::Range {
         start: offset_to_pos(code, range.start().to_usize()),
         end: offset_to_pos(code, range.end().to_usize()),
     }

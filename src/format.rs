@@ -34,7 +34,7 @@ fn do_indent(code: &str, edits: &mut Vec<TextEdit>, node: &Node, indent: usize) 
         None => {
             let off = utils::offset_to_pos(code, node.range().start().to_usize());
             edits.push(TextEdit {
-                range: Range {
+                range: lsp_types::Range {
                     start: off,
                     end: off
                 },
