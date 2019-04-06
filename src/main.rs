@@ -11,16 +11,16 @@ mod utils;
 use self::models::*;
 
 use failure::Error;
+use lsp_types::*;
 use rnix::{parser::*, types::*};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     fmt,
     fs::File,
     io::{self, prelude::*},
     panic,
     rc::Rc
 };
-use url::Url;
 
 fn main() -> Result<(), Error> {
     let mut log = File::create("/tmp/nix-lsp.log")?;
@@ -45,7 +45,7 @@ fn main() -> Result<(), Error> {
 }
 
 struct App<'a, W: io::Write> {
-    files: HashMap<String, (AST, String)>,
+    files: HashMap<Url, (AST, String)>,
     log: &'a mut File,
     stdout: W
 }
@@ -116,27 +116,33 @@ impl<'a, W: io::Write> App<'a, W> {
             "initialize" => self.send(&Response::success(req.id, Some(
                 InitializeResult {
                     capabilities: ServerCapabilities {
-                        text_document_sync: TextDocumentSyncOptions {
-                            open_close: true,
-                            change: 1, // 1 = send full text on modification
-                        },
-                        completion_provider: CompletionOptions {
-                            resolve_provider: true
-                        },
-                        definition_provider: true,
-                        document_formatting_provider: true
+                        text_document_sync: Some(TextDocumentSyncCapability::Options(
+                            TextDocumentSyncOptions {
+                                open_close: Some(true),
+                                change: Some(TextDocumentSyncKind::Full),
+                                ..Default::default()
+                            }
+                        )),
+                        completion_provider: Some(CompletionOptions {
+                            resolve_provider: Some(true),
+                            ..Default::default()
+                        }),
+                        definition_provider: Some(true),
+                        document_formatting_provider: Some(true),
+                        rename_provider: Some(RenameProviderCapability::Simple(true)),
+                        ..Default::default()
                     }
                 }
             )))?,
             "textDocument/didOpen" => {
-                let params: DidOpen = serde_json::from_value(req.params)?;
-                let text = params.text_document.text.ok_or_else(|| format_err!("missing text in request"))?;
+                let params: DidOpenTextDocumentParams = serde_json::from_value(req.params)?;
+                let text = params.text_document.text;
                 let parsed = rnix::parse(&text);
                 self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
                 self.files.insert(params.text_document.uri, (parsed, text));
             },
             "textDocument/didChange" => {
-                let params: DidChange = serde_json::from_value(req.params)?;
+                let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
                 if let Some(change) = params.content_changes.into_iter().last() {
                     let parsed = rnix::parse(&change.text);
                     self.send_diagnostics(params.text_document.uri.clone(), &change.text, &parsed)?;
@@ -144,8 +150,7 @@ impl<'a, W: io::Write> App<'a, W> {
                 }
             },
             "textDocument/definition" => {
-                let params: Definition = serde_json::from_value(req.params)?;
-                writeln!(self.log, "{:?}", params.text_document.uri)?;
+                let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
                 if let Some(pos) = self.lookup_definition(params) {
                     self.send(&Response::success(req.id, pos))?;
                 } else {
@@ -153,17 +158,20 @@ impl<'a, W: io::Write> App<'a, W> {
                 }
             },
             "textDocument/completion" => {
-                let params: Definition = serde_json::from_value(req.params)?;
+                let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
                 let completions = self.completions(params).unwrap_or_default();
                 self.send(&Response::success(req.id, completions))?;
             },
             "textDocument/rename" => {
                 let params: RenameParams = serde_json::from_value(req.params)?;
-                let changes = self.rename(params).unwrap_or_default();
-                self.send(&Response::success(req.id, WorkspaceEdit { changes }))?;
+                let changes = self.rename(params);
+                self.send(&Response::success(req.id, WorkspaceEdit {
+                    changes,
+                    ..Default::default()
+                }))?;
             }
             "textDocument/formatting" => {
-                let params: Formatting = serde_json::from_value(req.params)?;
+                let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
 
                 let mut edits = None;
                 if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
@@ -196,28 +204,25 @@ impl<'a, W: io::Write> App<'a, W> {
         }
         Ok(())
     }
-    fn lookup_definition(&mut self, params: Definition) -> Option<Location> {
-        let uri = Url::parse(&params.text_document.uri).ok()?;
+    fn lookup_definition(&mut self, params: TextDocumentPositionParams) -> Option<Location> {
         let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
         let node = ast.node().to_owned();
-        let (name, scope) = self.scope_for_ident(uri, &node, offset)?;
+        let (name, scope) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
 
         let var = scope.get(name.as_str())?;
-        let uri = var.file.to_string();
-        let (_ast, code) = self.files.get(&uri)?;
+        let (_ast, code) = self.files.get(&var.file)?;
         Some(Location {
-            uri,
+            uri: (*var.file).clone(),
             range: utils::range(code, var.key.range())
         })
     }
-    fn completions(&mut self, params: Definition) -> Option<Vec<CompletionItem>> {
-        let uri = Url::parse(&params.text_document.uri).ok()?;
+    fn completions(&mut self, params: TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {
         let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
 
         let node = ast.node().to_owned();
-        let (name, scope) = self.scope_for_ident(uri, &node, offset)?;
+        let (name, scope) = self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
 
         // Re-open, because scope_for_ident may mutably borrow
         let (_ast, code) = self.files.get(&params.text_document.uri)?;
@@ -227,17 +232,17 @@ impl<'a, W: io::Write> App<'a, W> {
             if var.starts_with(&name.as_str()) {
                 completions.push(CompletionItem {
                     label: var.clone(),
-                    edit: TextEdit {
+                    text_edit: Some(TextEdit {
                         range: utils::range(code, name.node().range()),
                         new_text: var.clone()
-                    }
+                    }),
+                    ..Default::default()
                 });
             }
         }
         Some(completions)
     }
-    fn rename(&mut self, params: RenameParams) -> Option<BTreeMap<String, Vec<TextEdit>>> {
-        let uri = Url::parse(&params.text_document.uri).ok()?;
+    fn rename(&mut self, params: RenameParams) -> Option<HashMap<Url, Vec<TextEdit>>> {
         let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
         let info = utils::ident_at(ast.node(), offset)?;
@@ -246,7 +251,7 @@ impl<'a, W: io::Write> App<'a, W> {
             return None;
         }
         let old = info.ident;
-        let scope = utils::scope_for(&Rc::new(uri), old.node());
+        let scope = utils::scope_for(&Rc::new(params.text_document.uri.clone()), old.node());
 
         struct Rename<'a> {
             edits: Vec<TextEdit>,
@@ -285,29 +290,30 @@ impl<'a, W: io::Write> App<'a, W> {
         let definition = scope.get(old.as_str())?;
         rename_in_node(&mut rename, &definition.set);
 
-        let mut changes = BTreeMap::new();
+        let mut changes = HashMap::new();
         changes.insert(params.text_document.uri, rename.edits);
         Some(changes)
     }
-    fn send_diagnostics(&mut self, uri: String, code: &str, ast: &AST) -> Result<(), Error> {
+    fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();
         let mut diagnostics = Vec::with_capacity(errors.len());
         for err in errors {
             if let ParseError::Unexpected(ref node) = err {
                 diagnostics.push(Diagnostic {
                     range: utils::range(code, node.range()),
-                    severity: ERROR,
-                    message: err.to_string()
+                    severity: Some(DiagnosticSeverity::Error),
+                    message: err.to_string(),
+                    ..Default::default()
                 });
             }
         }
         self.send(&Notification {
+            jsonrpc: "2.0",
             method: "textDocument/publishDiagnostics".into(),
-            params: DiagnosticParams {
+            params: PublishDiagnosticsParams {
                 uri,
                 diagnostics
             }
         })
     }
 }
-

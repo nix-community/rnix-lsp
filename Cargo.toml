@@ -5,6 +5,7 @@ name = "nix-lsp"
 version = "0.1.0"
 [dependencies]
 failure = "0.1.5"
+lsp-types = "0.56.0"
 rnix = "0.5.1"
 rowan = "0.3.2"
 serde = "1.0.85"

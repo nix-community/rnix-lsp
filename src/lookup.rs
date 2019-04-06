@@ -1,4 +1,5 @@
 use crate::{App, utils::{self, Var}};
+use lsp_types::Url;
 use rnix::{parser::*, types::*, value::Value as ParsedValue};
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -6,7 +7,6 @@ use std::{
     io,
     rc::Rc
 };
-use url::Url;
 
 impl<'a, W: io::Write> App<'a, W> {
     pub fn scope_for_ident<'b>(&mut self, file: Url, root: &'b Node, offset: usize)
@@ -53,7 +53,7 @@ impl<'a, W: io::Write> App<'a, W> {
             // TODO use anchor
             *file = Rc::new(file.join(&path).ok()?);
             let path = utils::uri_path(&file)?;
-            node = match self.files.entry(file.to_string()) {
+            node = match self.files.entry((**file).clone()) {
                 Entry::Occupied(entry) => {
                     let (ast, _code) = entry.get();
                     ast.root().inner().to_owned()
