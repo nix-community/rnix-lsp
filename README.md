@@ -1,3 +1,3 @@
 # nix-lsp
 
-***VERY*** early alpha of a Nix language server written in Rust using [rnix](https://gitlab.com/jD91mZM2/rnix)
+***VERY*** early alpha of a Nix language server written in Rust using [rnix](https://github.com/nix-community/rnix-parser)

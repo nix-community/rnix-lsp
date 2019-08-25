@@ -3,6 +3,7 @@ authors = ["jD91mZM2 <me@krake.one>"]
 edition = "2018"
 name = "nix-lsp"
 version = "0.1.0"
+
 [dependencies]
 failure = "0.1.5"
 lsp-types = "0.56.0"
