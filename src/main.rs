@@ -3,7 +3,6 @@
 #[macro_use] extern crate failure;
 #[macro_use] extern crate serde_derive;
 
-mod format;
 mod lookup;
 mod models;
 mod utils;
@@ -12,7 +11,7 @@ use self::models::*;
 
 use failure::Error;
 use lsp_types::*;
-use rnix::{parser::*, types::*};
+use rnix::{parser::*, types::*, SyntaxNode};
 use std::{
     collections::HashMap,
     fmt,
@@ -171,13 +170,13 @@ impl<'a, W: io::Write> App<'a, W> {
                 }))?;
             }
             "textDocument/formatting" => {
-                let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
+                // let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
 
-                let mut edits = None;
-                if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
-                    edits = Some(format::format(code, ast.node()));
-                }
-                self.send(&Response::success(req.id, edits.unwrap_or_default()))?;
+                // let mut edits = None;
+                // if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
+                //     edits = Some(format::format(code, ast.node()));
+                // }
+                // self.send(&Response::success(req.id, edits.unwrap_or_default()))?;
             },
             // LSP does not have extend-selection built-in, so we namespace it
             // under nix-lsp, as a custom protocol extension.
@@ -192,7 +191,7 @@ impl<'a, W: io::Write> App<'a, W> {
                     for sel in params.selections {
                         let mut extended = sel;
                         if let Some(range) = utils::lookup_range(code, sel) {
-                            let extended_range = utils::extend(ast.node(), range);
+                            let extended_range = utils::extend(&ast.node(), range);
                             extended = utils::range(code, extended_range);
                         }
                         selections.push(extended);
@@ -208,13 +207,13 @@ impl<'a, W: io::Write> App<'a, W> {
         let (ast, code) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(code, params.position)?;
         let node = ast.node().to_owned();
-        let (name, scope) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
+        let (name, scope) = self.scope_for_ident(params.text_document.uri, node, offset)?;
 
         let var = scope.get(name.as_str())?;
         let (_ast, code) = self.files.get(&var.file)?;
         Some(Location {
             uri: (*var.file).clone(),
-            range: utils::range(code, var.key.range())
+            range: utils::range(code, var.key.text_range())
         })
     }
     fn completions(&mut self, params: TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {
@@ -222,7 +221,7 @@ impl<'a, W: io::Write> App<'a, W> {
         let offset = utils::lookup_pos(code, params.position)?;
 
         let node = ast.node().to_owned();
-        let (name, scope) = self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
+        let (name, scope) = self.scope_for_ident(params.text_document.uri.clone(), node, offset)?;
 
         // Re-open, because scope_for_ident may mutably borrow
         let (_ast, code) = self.files.get(&params.text_document.uri)?;
@@ -233,7 +232,7 @@ impl<'a, W: io::Write> App<'a, W> {
                 completions.push(CompletionItem {
                     label: var.clone(),
                     text_edit: Some(TextEdit {
-                        range: utils::range(code, name.node().range()),
+                        range: utils::range(code, name.node().text_range()),
                         new_text: var.clone()
                     }),
                     ..Default::default()
@@ -243,15 +242,16 @@ impl<'a, W: io::Write> App<'a, W> {
         Some(completions)
     }
     fn rename(&mut self, params: RenameParams) -> Option<HashMap<Url, Vec<TextEdit>>> {
-        let (ast, code) = self.files.get(&params.text_document.uri)?;
-        let offset = utils::lookup_pos(code, params.position)?;
+        let uri = params.text_document_position.text_document.uri;
+        let (ast, code) = self.files.get(&uri)?;
+        let offset = utils::lookup_pos(code, params.text_document_position.position)?;
         let info = utils::ident_at(ast.node(), offset)?;
         if !info.path.is_empty() {
             // Renaming within a set not supported
             return None;
         }
         let old = info.ident;
-        let scope = utils::scope_for(&Rc::new(params.text_document.uri.clone()), old.node());
+        let scope = utils::scope_for(&Rc::new(uri.clone()), old.node().clone())?;
 
         struct Rename<'a> {
             edits: Vec<TextEdit>,
@@ -259,17 +259,17 @@ impl<'a, W: io::Write> App<'a, W> {
             old: &'a str,
             new_name: String,
         }
-        fn rename_in_node(rename: &mut Rename, node: &Node) {
-            if let Some(ident) = Ident::cast(node) {
+        fn rename_in_node(rename: &mut Rename, node: SyntaxNode) -> Option<()> {
+            if let Some(ident) = Ident::cast(node.clone()) {
                 if ident.as_str() == rename.old {
                     rename.edits.push(TextEdit {
-                        range: utils::range(rename.code, node.range()),
+                        range: utils::range(rename.code, node.text_range()),
                         new_text: rename.new_name.clone()
                     });
                 }
-            } else if let Some(index) = IndexSet::cast(node) {
-                rename_in_node(rename, index.set());
-            } else if let Some(attr) = Attribute::cast(node) {
+            } else if let Some(index) = IndexSet::cast(node.clone()) {
+                rename_in_node(rename, index.set()?);
+            } else if let Some(attr) = Attribute::cast(node.clone()) {
                 let mut path = attr.path();
                 if let Some(ident) = path.next() {
                     rename_in_node(rename, ident);
@@ -279,6 +279,7 @@ impl<'a, W: io::Write> App<'a, W> {
                     rename_in_node(rename, child);
                 }
             }
+            Some(())
         }
 
         let mut rename = Rename {
@@ -288,19 +289,19 @@ impl<'a, W: io::Write> App<'a, W> {
             new_name: params.new_name
         };
         let definition = scope.get(old.as_str())?;
-        rename_in_node(&mut rename, &definition.set);
+        rename_in_node(&mut rename, definition.set.clone());
 
         let mut changes = HashMap::new();
-        changes.insert(params.text_document.uri, rename.edits);
+        changes.insert(uri, rename.edits);
         Some(changes)
     }
     fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();
         let mut diagnostics = Vec::with_capacity(errors.len());
         for err in errors {
-            if let ParseError::Unexpected(ref node) = err {
+            if let ParseError::Unexpected(node) = err {
                 diagnostics.push(Diagnostic {
-                    range: utils::range(code, node.range()),
+                    range: utils::range(code, node),
                     severity: Some(DiagnosticSeverity::Error),
                     message: err.to_string(),
                     ..Default::default()

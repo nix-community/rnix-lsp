@@ -1,6 +1,10 @@
 use crate::{App, utils::{self, Var}};
 use lsp_types::Url;
-use rnix::{parser::*, types::*, value::Value as ParsedValue};
+use rnix::{
+    types::*,
+    value::Value as ParsedValue,
+    SyntaxNode,
+};
 use std::{
     collections::{HashMap, hash_map::Entry},
     fs,
@@ -9,40 +13,38 @@ use std::{
 };
 
 impl<'a, W: io::Write> App<'a, W> {
-    pub fn scope_for_ident<'b>(&mut self, file: Url, root: &'b Node, offset: usize)
-        -> Option<(&'b Ident, HashMap<String, Var>)>
+    pub fn scope_for_ident(&mut self, file: Url, root: SyntaxNode, offset: usize)
+        -> Option<(Ident, HashMap<String, Var>)>
     {
         let mut file = Rc::new(file);
         let info = utils::ident_at(root, offset)?;
         let ident = info.ident;
-        let mut entries = utils::scope_for(&file, ident.node());
+        let mut entries = utils::scope_for(&file, ident.node().clone())?;
         for var in info.path {
-            let node = entries.get(&var)?.value.as_ref()?;
+            let node = entries.get(&var)?.value.clone()?;
             entries = self.scope_from_node(&mut file, node)?;
         }
-        Some((Ident::cast(ident.node()).unwrap(), entries))
+        Some((Ident::cast(ident.node().clone()).unwrap(), entries))
     }
-    pub fn scope_from_node(&mut self, file: &mut Rc<Url>, mut node: &Node)
+    pub fn scope_from_node(&mut self, file: &mut Rc<Url>, mut node: SyntaxNode)
         -> Option<HashMap<String, Var>>
     {
         let mut scope = HashMap::new();
 
-        if let Some(entry) = SetEntry::cast(node) {
-            node = entry.value();
+        if let Some(entry) = SetEntry::cast(node.clone()) {
+            node = entry.value()?;
         }
-
-        let mut node = node.to_owned();
 
         // Resolve simple imports
         loop {
-            let apply = match Apply::cast(&node) {
+            let apply = match Apply::cast(node.clone()) {
                 None => break,
-                Some(apply) => apply
+                Some(apply) => apply,
             };
-            if Ident::cast(apply.lambda()).map(|ident| ident.as_str() != "import").unwrap_or(true) {
+            if Ident::cast(apply.lambda()?).map(|ident| ident.as_str() != "import").unwrap_or(true) {
                 break;
             }
-            let (_anchor, path) = match Value::cast(apply.value()) {
+            let (_anchor, path) = match Value::cast(apply.value()?) {
                 None => break,
                 Some(value) => match value.to_value() {
                     Ok(ParsedValue::Path(_anchor, path)) => (_anchor, path),
@@ -56,20 +58,20 @@ impl<'a, W: io::Write> App<'a, W> {
             node = match self.files.entry((**file).clone()) {
                 Entry::Occupied(entry) => {
                     let (ast, _code) = entry.get();
-                    ast.root().inner().to_owned()
+                    ast.root().inner()?.clone()
                 },
                 Entry::Vacant(placeholder) => {
                     let code = fs::read_to_string(&path).ok()?;
                     let ast = rnix::parse(&code);
-                    let node = ast.root().inner().to_owned();
+                    let node = ast.root().inner()?.clone();
                     placeholder.insert((ast, code));
                     node
                 }
             };
         }
 
-        if let Some(set) = Set::cast(&node) {
-            utils::populate(&file, &mut scope, set);
+        if let Some(set) = Set::cast(node) {
+            utils::populate(&file, &mut scope, &set);
         }
         Some(scope)
     }
