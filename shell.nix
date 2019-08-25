@@ -7,6 +7,7 @@ let
     date = "2019-08-25";
     channel = "nightly";
   };
-in nixpkgs.mkShell {
+in
+nixpkgs.mkShell {
   buildInputs = [ nightly.rust ];
 }

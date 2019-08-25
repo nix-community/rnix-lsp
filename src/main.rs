@@ -100,7 +100,7 @@ impl<'a, W: io::Write> App<'a, W> {
         }
     }
     fn send<T: serde::Serialize + fmt::Debug>(&mut self, msg: &T) -> Result<(), Error> {
-        writeln!(self.log, "Sending: {:?}", msg)?;
+        writeln!(self.log, "Sending: {:#?}", msg)?;
         let bytes = serde_json::to_vec(msg)?;
         write!(self.stdout, "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n")?;
         write!(self.stdout, "Content-Length: {}\r\n", bytes.len())?;
@@ -170,13 +170,21 @@ impl<'a, W: io::Write> App<'a, W> {
                 }))?;
             }
             "textDocument/formatting" => {
-                // let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
+                let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
 
-                // let mut edits = None;
-                // if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
-                //     edits = Some(format::format(code, ast.node()));
-                // }
-                // self.send(&Response::success(req.id, edits.unwrap_or_default()))?;
+                let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
+                    let fmt = nixpkgs_fmt::reformat_node(&ast.node());
+                    fmt.diff().iter()
+                        .filter(|range| !range.delete.is_empty() || !range.insert.is_empty())
+                        .map(|edit| TextEdit {
+                            range: utils::range(&code, edit.delete),
+                            new_text: edit.insert.to_string()
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                self.send(&Response::success(req.id, changes))?;
             },
             // LSP does not have extend-selection built-in, so we namespace it
             // under nix-lsp, as a custom protocol extension.
