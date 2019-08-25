@@ -1,0 +1,2 @@
+language: nix
+script: "nix-shell --run 'cargo test --all --verbose'"
