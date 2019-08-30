@@ -1,6 +1,5 @@
 #![feature(panic_info_message)]
 
-#[macro_use] extern crate failure;
 #[macro_use] extern crate serde_derive;
 
 mod lookup;
@@ -9,7 +8,6 @@ mod utils;
 
 use self::models::*;
 
-use failure::Error;
 use log::{error, trace, warn};
 use lsp_types::*;
 use rnix::{parser::*, types::*, SyntaxNode};
@@ -20,6 +18,8 @@ use std::{
     panic,
     rc::Rc
 };
+
+pub type Error = Box<dyn std::error::Error>;
 
 fn main() -> Result<(), Error> {
     let stdout = io::stdout();
@@ -69,7 +69,7 @@ impl<W: io::Write> App<W> {
                 }
             }
 
-            let length = length.ok_or_else(|| format_err!("missing Content-Length in request"))?;
+            let length = length.ok_or("missing Content-Length in request")?;
 
             let mut body = vec![0; length];
             stdin.read_exact(&mut body)?;
