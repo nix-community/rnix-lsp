@@ -10,45 +10,40 @@ mod utils;
 use self::models::*;
 
 use failure::Error;
+use log::{error, trace, warn};
 use lsp_types::*;
 use rnix::{parser::*, types::*, SyntaxNode};
 use std::{
     collections::HashMap,
     fmt,
-    fs::File,
     io::{self, prelude::*},
     panic,
     rc::Rc
 };
 
 fn main() -> Result<(), Error> {
-    let mut log = File::create("/tmp/nix-lsp.log")?;
-    let log_clone = log.try_clone()?;
-
     let stdout = io::stdout();
     let mut app = App {
         files: HashMap::new(),
-        log: &mut log,
-        stdout: stdout.lock()
+        stdout: stdout.lock(),
     };
     panic::set_hook(Box::new(move |panic| {
-        writeln!(&log_clone, "----- Panic -----").unwrap();
-        writeln!(&log_clone, "{}", panic).unwrap();
+        error!("----- Panic -----");
+        error!("{}", panic);
     }));
     if let Err(err) = app.main() {
-        writeln!(log, "{:?}", err).unwrap();
+        error!("{}", err);
         return Err(err);
     }
 
     Ok(())
 }
 
-struct App<'a, W: io::Write> {
+struct App<W: io::Write> {
     files: HashMap<Url, (AST, String)>,
-    log: &'a mut File,
     stdout: W
 }
-impl<'a, W: io::Write> App<'a, W> {
+impl<W: io::Write> App<W> {
     fn main(&mut self) -> Result<(), Error> {
         let stdin = io::stdin();
         let mut stdin = stdin.lock();
@@ -79,14 +74,14 @@ impl<'a, W: io::Write> App<'a, W> {
             let mut body = vec![0; length];
             stdin.read_exact(&mut body)?;
 
-            writeln!(self.log, "Raw: {:?}", std::str::from_utf8(&body).unwrap_or_default())?;
+            trace!("Input (raw): {:?}", std::str::from_utf8(&body).unwrap_or_default());
             let req: Result<Request, _> = serde_json::from_slice(&body);
-            writeln!(self.log, "{:#?}", req)?;
+            trace!("Input (parsed): {:#?}", req);
 
             let req = match req {
                 Ok(req) => req,
                 Err(err) => {
-                    writeln!(self.log, "{:?}", err)?;
+                    warn!("{}", err);
                     self.send(&Response::error(None, err))?;
                     continue;
                 }
@@ -94,13 +89,13 @@ impl<'a, W: io::Write> App<'a, W> {
 
             let id = req.id;
             if let Err(err) = self.handle_request(req) {
-                writeln!(self.log, "{:?}", err)?;
+                warn!("{}", err);
                 self.send(&Response::error(id, err))?;
             }
         }
     }
     fn send<T: serde::Serialize + fmt::Debug>(&mut self, msg: &T) -> Result<(), Error> {
-        writeln!(self.log, "Sending: {:#?}", msg)?;
+        trace!("Sending (parsed): {:#?}", msg);
         let bytes = serde_json::to_vec(msg)?;
         write!(self.stdout, "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n")?;
         write!(self.stdout, "Content-Length: {}\r\n", bytes.len())?;
@@ -174,7 +169,7 @@ impl<'a, W: io::Write> App<'a, W> {
 
                 let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
                     let fmt = nixpkgs_fmt::reformat_node(&ast.node());
-                    fmt.diff().iter()
+                    fmt.text_diff().iter()
                         .filter(|range| !range.delete.is_empty() || !range.insert.is_empty())
                         .map(|edit| TextEdit {
                             range: utils::range(&code, edit.delete),

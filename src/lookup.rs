@@ -12,7 +12,7 @@ use std::{
     rc::Rc
 };
 
-impl<'a, W: io::Write> App<'a, W> {
+impl<W: io::Write> App<W> {
     pub fn scope_for_ident(&mut self, file: Url, root: SyntaxNode, offset: usize)
         -> Option<(Ident, HashMap<String, Var>)>
     {
