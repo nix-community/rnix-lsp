@@ -293,7 +293,6 @@ dependencies = [
  "lsp-types 0.61.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "nixpkgs-fmt 0.3.1 (git+https://github.com/nix-community/nixpkgs-fmt?rev=064e542d4b2077b5ba23e9162c8261fb1eb10824)",
  "rnix 0.6.0 (git+https://github.com/nix-community/rnix-parser?rev=032d580a17d0e924a1c105f2413b5e951019982b)",
- "serde 1.0.99 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.40 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

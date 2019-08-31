@@ -8,10 +8,9 @@ version = "0.1.0"
 env_logger = "0.6.2"
 log = "0.4.8"
 lsp-server = "0.2.0"
-lsp-types = "0.61.0"
+lsp-types = { version = "0.61.0", features = ["proposed"] }
 nixpkgs-fmt = { git = "https://github.com/nix-community/nixpkgs-fmt", rev = "064e542d4b2077b5ba23e9162c8261fb1eb10824" }
 rnix = "0.6.0"
-serde = { version = "1.0.99", features = ["derive"] }
 serde_json = "1.0.40"
 
 [patch.crates-io]

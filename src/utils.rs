@@ -39,15 +39,6 @@ pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
             )
         })
 }
-pub fn lookup_range(code: &str, range: Range) -> Option<TextRange> {
-    let start = lookup_pos(code, range.start)?;
-    let end = lookup_pos(code, range.end)?;
-    let res = TextRange::from_to(
-        (start as u32).into(),
-        (end as u32).into(),
-    );
-    Some(res)
-}
 pub fn offset_to_pos(code: &str, offset: usize) -> Position {
     let start_of_line = code[..offset].rfind('\n').map(|n| n+1).unwrap_or(0);
     Position {
@@ -180,13 +171,4 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
     }
 
     Some(scope)
-}
-
-pub fn extend(root: &SyntaxNode, range: TextRange) -> TextRange {
-    let node = root.covering_element(range);
-
-    match node.ancestors().skip_while(|n| n.text_range() == range).next() {
-        None => range,
-        Some(parent) => parent.text_range(),
-    }
 }

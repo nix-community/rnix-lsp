@@ -1,28 +1,23 @@
-#[macro_use]
-extern crate serde;
-
 mod lookup;
-mod models;
 mod utils;
-
-use models::ExtendSelectionParams;
 
 use log::{error, trace, warn};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
     *,
-    request::{*, Request as _}
+    notification::{*, Notification as _},
+    request::{*, Request as _},
 };
-use rnix::{parser::*, types::*, SyntaxNode};
+use rnix::{parser::*, types::*, SyntaxNode, TextUnit};
 use std::{
     collections::HashMap,
     panic,
     rc::Rc,
 };
 
-pub type Error = Box<dyn std::error::Error>;
+type Error = Box<dyn std::error::Error>;
 
-pub const DUMMY_ERROR: &str = "A fatal error has occured and nix-lsp has shut down.";
+const DUMMY_ERROR: &str = "A fatal error has occured and nix-lsp has shut down.";
 
 fn main() -> Result<(), &'static str> {
     env_logger::init();
@@ -47,6 +42,7 @@ fn main() -> Result<(), &'static str> {
         definition_provider: Some(true),
         document_formatting_provider: Some(true),
         rename_provider: Some(RenameProviderCapability::Simple(true)),
+        selection_range_provider: Some(GenericCapability::default()),
         ..Default::default()
     }).unwrap();
 
@@ -148,23 +144,12 @@ impl App {
                 };
                 self.reply(Response::new_ok(req.id, changes));
             },
-            // LSP does not have extend-selection built-in, so we namespace it
-            // under nix-lsp, as a custom protocol extension.
-            //
-            // Extend selection takes a document and a number of ranges in the
-            // doc. It returns a vector of "extended" ranges, where extended
-            // means "encompassing syntax node".
-            "nix-lsp/extendSelection" => {
-                let params: ExtendSelectionParams = serde_json::from_value(req.params)?;
+            SelectionRangeRequest::METHOD => {
+                let params: SelectionRangeParams = serde_json::from_value(req.params)?;
                 let mut selections = Vec::new();
                 if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
-                    for sel in params.selections {
-                        let mut extended = sel;
-                        if let Some(range) = utils::lookup_range(code, sel) {
-                            let extended_range = utils::extend(&ast.node(), range);
-                            extended = utils::range(code, extended_range);
-                        }
-                        selections.push(extended);
+                    for pos in params.positions {
+                        selections.push(self.selection_ranges(&ast.node(), code, pos));
                     }
                 }
                 self.reply(Response::new_ok(req.id, selections));
@@ -175,14 +160,14 @@ impl App {
     }
     fn handle_notification(&mut self, req: Notification) -> Result<(), Error> {
         match &*req.method {
-            "textDocument/didOpen" => {
+            DidOpenTextDocument::METHOD => {
                 let params: DidOpenTextDocumentParams = serde_json::from_value(req.params)?;
                 let text = params.text_document.text;
                 let parsed = rnix::parse(&text);
                 self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
                 self.files.insert(params.text_document.uri, (parsed, text));
             },
-            "textDocument/didChange" => {
+            DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
                 if let Some(change) = params.content_changes.into_iter().last() {
                     let parsed = rnix::parse(&change.text);
@@ -285,6 +270,32 @@ impl App {
         let mut changes = HashMap::new();
         changes.insert(uri, rename.edits);
         Some(changes)
+    }
+    fn selection_ranges(&self, root: &SyntaxNode, code: &str, pos: Position) -> Option<SelectionRange> {
+        let pos = utils::lookup_pos(code, pos)?;
+        let node = root.token_at_offset(TextUnit::from_usize(pos)).left_biased()?;
+
+        let mut root = None;
+        let mut cursor = &mut root;
+
+        let mut last = None;
+        for parent in node.ancestors() {
+            // De-duplicate
+            if last.as_ref() == Some(&parent) {
+                continue;
+            }
+
+            let range = parent.text_range();
+            *cursor = Some(Box::new(SelectionRange {
+                range: utils::range(code, range),
+                parent: None,
+            }));
+            cursor = &mut cursor.as_mut().unwrap().parent;
+
+            last = Some(parent);
+        }
+
+        root.map(|b| *b)
     }
     fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();
