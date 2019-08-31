@@ -1,6 +1,5 @@
-#![feature(panic_info_message)]
-
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde;
 
 mod lookup;
 mod models;
