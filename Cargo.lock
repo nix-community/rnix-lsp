@@ -260,6 +260,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "nixpkgs-fmt"
 version = "0.3.1"
+source = "git+https://github.com/nix-community/nixpkgs-fmt?rev=064e542d4b2077b5ba23e9162c8261fb1eb10824#064e542d4b2077b5ba23e9162c8261fb1eb10824"
 dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ignore 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -352,7 +353,7 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "lsp-server 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lsp-types 0.61.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "nixpkgs-fmt 0.3.1",
+ "nixpkgs-fmt 0.3.1 (git+https://github.com/nix-community/nixpkgs-fmt?rev=064e542d4b2077b5ba23e9162c8261fb1eb10824)",
  "rnix 0.6.0 (git+https://github.com/nix-community/rnix-parser?rev=032d580a17d0e924a1c105f2413b5e951019982b)",
  "serde 1.0.99 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.99 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -638,6 +639,7 @@ dependencies = [
 "checksum lsp-types 0.61.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fa3268fbe8beb2795c2fb327bf44f4f3d24f5fe9ebc18d7e2980afd444d72bcf"
 "checksum matches 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "7ffc5c5338469d4d3ea17d269fa8ea3512ad247247c30bd2df69e68309ed0a08"
 "checksum memchr 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "88579771288728879b57485cc7d6b07d648c9f0141eb955f8ab7f9d45394468e"
+"checksum nixpkgs-fmt 0.3.1 (git+https://github.com/nix-community/nixpkgs-fmt?rev=064e542d4b2077b5ba23e9162c8261fb1eb10824)" = "<none>"
 "checksum num-traits 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "6ba9a427cfca2be13aa6f6403b0b7e7368fe982bfa16fccc450ce74c46cd9b32"
 "checksum percent-encoding 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 "checksum proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)" = "cf3d2011ab5c909338f7887f4fc896d35932e29146c12c8d01da6b22a80ba759"
