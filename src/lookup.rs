@@ -8,11 +8,10 @@ use rnix::{
 use std::{
     collections::{HashMap, hash_map::Entry},
     fs,
-    io,
-    rc::Rc
+    rc::Rc,
 };
 
-impl<W: io::Write> App<W> {
+impl App {
     pub fn scope_for_ident(&mut self, file: Url, root: SyntaxNode, offset: usize)
         -> Option<(Ident, HashMap<String, Var>)>
     {

@@ -28,7 +28,7 @@ let
         this_is_also_a_value = rename_me;
     };
 
-    # Ignoring shadowing renames is currently broken
+    # Ignoring shadowed variables is currently broken
     shadowed = rec {
       rename_me = "unrelated so, if possible, don't *actually* rename me";
       hopefully_unchanged_usage = rename_me;

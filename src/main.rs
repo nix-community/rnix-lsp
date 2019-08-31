@@ -6,165 +6,133 @@ mod lookup;
 mod models;
 mod utils;
 
-use self::models::*;
+use models::ExtendSelectionParams;
 
 use log::{error, trace, warn};
-use lsp_types::*;
+use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
+use lsp_types::{
+    *,
+    request::{*, Request as _}
+};
 use rnix::{parser::*, types::*, SyntaxNode};
 use std::{
     collections::HashMap,
-    fmt,
-    io::{self, prelude::*},
     panic,
-    rc::Rc
+    rc::Rc,
 };
 
 pub type Error = Box<dyn std::error::Error>;
 
-fn main() -> Result<(), Error> {
-    let stdout = io::stdout();
-    let mut app = App {
-        files: HashMap::new(),
-        stdout: stdout.lock(),
-    };
+pub const DUMMY_ERROR: &str = "A fatal error has occured and nix-lsp has shut down.";
+
+fn main() -> Result<(), &'static str> {
+    env_logger::init();
     panic::set_hook(Box::new(move |panic| {
         error!("----- Panic -----");
         error!("{}", panic);
     }));
-    if let Err(err) = app.main() {
-        error!("{}", err);
-        return Err(err);
+
+    let (connection, io_threads) = Connection::stdio();
+    let capabilities = serde_json::to_value(&ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::Full),
+                ..Default::default()
+            }
+        )),
+        completion_provider: Some(CompletionOptions {
+            resolve_provider: Some(true),
+            ..Default::default()
+        }),
+        definition_provider: Some(true),
+        document_formatting_provider: Some(true),
+        rename_provider: Some(RenameProviderCapability::Simple(true)),
+        ..Default::default()
+    }).unwrap();
+
+    if let Err(err) = connection.initialize(capabilities) {
+        error!("{:?}", err);
+        return Err(DUMMY_ERROR);
+    }
+
+    App {
+        files: HashMap::new(),
+        conn: connection,
+    }.main();
+
+    if let Err(err) = io_threads.join() {
+        error!("Unable to shut down I/O threads: {}", err);
+        return Err(DUMMY_ERROR);
     }
 
     Ok(())
 }
 
-struct App<W: io::Write> {
+struct App {
     files: HashMap<Url, (AST, String)>,
-    stdout: W
+    conn: Connection,
 }
-impl<W: io::Write> App<W> {
-    fn main(&mut self) -> Result<(), Error> {
-        let stdin = io::stdin();
-        let mut stdin = stdin.lock();
-
-        loop {
-            let mut length = None;
-            let mut line = String::new();
-
-            loop {
-                line.clear();
-                stdin.read_line(&mut line)?;
-
-                let line = line.trim();
-
-                let mut parts = line.split(':');
-                match (parts.next(), parts.next()) {
-                    (Some("Content-Length"), Some(x)) => length = Some(x.trim().parse()?),
-                    _ => ()
-                }
-
-                if line.is_empty() {
-                    break;
-                }
-            }
-
-            let length = length.ok_or("missing Content-Length in request")?;
-
-            let mut body = vec![0; length];
-            stdin.read_exact(&mut body)?;
-
-            trace!("Input (raw): {:?}", std::str::from_utf8(&body).unwrap_or_default());
-            let req: Result<Request, _> = serde_json::from_slice(&body);
-            trace!("Input (parsed): {:#?}", req);
-
-            let req = match req {
-                Ok(req) => req,
-                Err(err) => {
-                    warn!("{}", err);
-                    self.send(&Response::error(None, err))?;
-                    continue;
-                }
-            };
-
-            let id = req.id;
-            if let Err(err) = self.handle_request(req) {
-                warn!("{}", err);
-                self.send(&Response::error(id, err))?;
+impl App {
+    fn reply(&mut self, response: Response) {
+        trace!("Sending response: {:#?}", response);
+        self.conn.sender.send(Message::Response(response)).unwrap();
+    }
+    fn notify(&mut self, notification: Notification) {
+        trace!("Sending notification: {:#?}", notification);
+        self.conn.sender.send(Message::Notification(notification)).unwrap();
+    }
+    fn err<E>(&mut self, id: RequestId, err: E)
+        where E: std::fmt::Display
+    {
+        warn!("{}", err);
+        self.reply(Response::new_err(id, ErrorCode::UnknownErrorCode as i32, err.to_string()));
+    }
+    fn main(&mut self) {
+        while let Ok(msg) = self.conn.receiver.recv() {
+            trace!("Message: {:#?}", msg);
+            match msg {
+                Message::Request(req) => {
+                    let id = req.id.clone();
+                    match self.conn.handle_shutdown(&req) {
+                        Ok(true) => break,
+                        Ok(false) => if let Err(err) = self.handle_request(req) {
+                            self.err(id, err);
+                        },
+                        Err(err) => self.err(id, err),
+                    }
+                },
+                Message::Notification(notification) => {
+                    let _ = self.handle_notification(notification);
+                },
+                Message::Response(_) => (),
             }
         }
     }
-    fn send<T: serde::Serialize + fmt::Debug>(&mut self, msg: &T) -> Result<(), Error> {
-        trace!("Sending (parsed): {:#?}", msg);
-        let bytes = serde_json::to_vec(msg)?;
-        write!(self.stdout, "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n")?;
-        write!(self.stdout, "Content-Length: {}\r\n", bytes.len())?;
-        write!(self.stdout, "\r\n")?;
-
-        self.stdout.write_all(&bytes)?;
-        self.stdout.flush()?;
-        Ok(())
-    }
     fn handle_request(&mut self, req: Request) -> Result<(), Error> {
         match &*req.method {
-            "initialize" => self.send(&Response::success(req.id, Some(
-                InitializeResult {
-                    capabilities: ServerCapabilities {
-                        text_document_sync: Some(TextDocumentSyncCapability::Options(
-                            TextDocumentSyncOptions {
-                                open_close: Some(true),
-                                change: Some(TextDocumentSyncKind::Full),
-                                ..Default::default()
-                            }
-                        )),
-                        completion_provider: Some(CompletionOptions {
-                            resolve_provider: Some(true),
-                            ..Default::default()
-                        }),
-                        definition_provider: Some(true),
-                        document_formatting_provider: Some(true),
-                        rename_provider: Some(RenameProviderCapability::Simple(true)),
-                        ..Default::default()
-                    }
-                }
-            )))?,
-            "textDocument/didOpen" => {
-                let params: DidOpenTextDocumentParams = serde_json::from_value(req.params)?;
-                let text = params.text_document.text;
-                let parsed = rnix::parse(&text);
-                self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
-                self.files.insert(params.text_document.uri, (parsed, text));
-            },
-            "textDocument/didChange" => {
-                let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
-                if let Some(change) = params.content_changes.into_iter().last() {
-                    let parsed = rnix::parse(&change.text);
-                    self.send_diagnostics(params.text_document.uri.clone(), &change.text, &parsed)?;
-                    self.files.insert(params.text_document.uri, (parsed, change.text));
-                }
-            },
-            "textDocument/definition" => {
+            GotoDefinition::METHOD => {
                 let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
                 if let Some(pos) = self.lookup_definition(params) {
-                    self.send(&Response::success(req.id, pos))?;
+                    self.reply(Response::new_ok(req.id, pos));
                 } else {
-                    self.send(&Response::empty(req.id))?;
+                    self.reply(Response::new_ok(req.id, ()));
                 }
             },
-            "textDocument/completion" => {
+            Completion::METHOD => {
                 let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
                 let completions = self.completions(params).unwrap_or_default();
-                self.send(&Response::success(req.id, completions))?;
+                self.reply(Response::new_ok(req.id, completions));
             },
-            "textDocument/rename" => {
+            Rename::METHOD => {
                 let params: RenameParams = serde_json::from_value(req.params)?;
                 let changes = self.rename(params);
-                self.send(&Response::success(req.id, WorkspaceEdit {
+                self.reply(Response::new_ok(req.id, WorkspaceEdit {
                     changes,
                     ..Default::default()
-                }))?;
-            }
-            "textDocument/formatting" => {
+                }));
+            },
+            Formatting::METHOD => {
                 let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
 
                 let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
@@ -179,7 +147,7 @@ impl<W: io::Write> App<W> {
                 } else {
                     Vec::new()
                 };
-                self.send(&Response::success(req.id, changes))?;
+                self.reply(Response::new_ok(req.id, changes));
             },
             // LSP does not have extend-selection built-in, so we namespace it
             // under nix-lsp, as a custom protocol extension.
@@ -200,9 +168,30 @@ impl<W: io::Write> App<W> {
                         selections.push(extended);
                     }
                 }
-                self.send(&Response::success(req.id, selections))?;
-            }
-            _ => ()
+                self.reply(Response::new_ok(req.id, selections));
+            },
+            _ => (),
+        }
+        Ok(())
+    }
+    fn handle_notification(&mut self, req: Notification) -> Result<(), Error> {
+        match &*req.method {
+            "textDocument/didOpen" => {
+                let params: DidOpenTextDocumentParams = serde_json::from_value(req.params)?;
+                let text = params.text_document.text;
+                let parsed = rnix::parse(&text);
+                self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
+                self.files.insert(params.text_document.uri, (parsed, text));
+            },
+            "textDocument/didChange" => {
+                let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
+                if let Some(change) = params.content_changes.into_iter().last() {
+                    let parsed = rnix::parse(&change.text);
+                    self.send_diagnostics(params.text_document.uri.clone(), &change.text, &parsed)?;
+                    self.files.insert(params.text_document.uri, (parsed, change.text));
+                }
+            },
+            _ => (),
         }
         Ok(())
     }
@@ -311,13 +300,13 @@ impl<W: io::Write> App<W> {
                 });
             }
         }
-        self.send(&Notification {
-            jsonrpc: "2.0",
-            method: "textDocument/publishDiagnostics".into(),
-            params: PublishDiagnosticsParams {
+        self.notify(Notification::new(
+            "textDocument/publishDiagnostics".into(),
+            PublishDiagnosticsParams {
                 uri,
                 diagnostics
             }
-        })
+        ));
+        Ok(())
     }
 }

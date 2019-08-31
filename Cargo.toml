@@ -5,7 +5,10 @@ name = "rnix-lsp"
 version = "0.1.0"
 
 [dependencies]
+env_logger = "0.6.2"
 failure = "0.1.5"
+log = "0.4.8"
+lsp-server = "0.2.0"
 lsp-types = "0.61.0"
 # nixpkgs-fmt = { git = "https://github.com/nix-community/nixpkgs-fmt", rev = "..." }
 nixpkgs-fmt = { path = "/home/user/Downloads/nixpkgs-fmt/" }
@@ -14,8 +17,6 @@ serde = "1.0.99"
 serde_derive = "1.0.99"
 serde_json = "1.0.40"
 url = "2.1.0"
-log = "0.4.8"
-env_logger = "0.6.2"
 
 [patch.crates-io]
 rnix = { git = "https://github.com/nix-community/rnix-parser", rev = "032d580a17d0e924a1c105f2413b5e951019982b" }
