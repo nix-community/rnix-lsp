@@ -48,7 +48,7 @@ fn real_main() -> Result<(), Error> {
         definition_provider: Some(true),
         document_formatting_provider: Some(true),
         rename_provider: Some(RenameProviderCapability::Simple(true)),
-        selection_range_provider: Some(GenericCapability::default()),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         ..Default::default()
     }).unwrap();
 
@@ -251,9 +251,9 @@ impl App {
                         new_text: rename.new_name.clone()
                     });
                 }
-            } else if let Some(index) = IndexSet::cast(node.clone()) {
+            } else if let Some(index) = Select::cast(node.clone()) {
                 rename_in_node(rename, index.set()?);
-            } else if let Some(attr) = Attribute::cast(node.clone()) {
+            } else if let Some(attr) = Key::cast(node.clone()) {
                 let mut path = attr.path();
                 if let Some(ident) = path.next() {
                     rename_in_node(rename, ident);
@@ -322,7 +322,8 @@ impl App {
             "textDocument/publishDiagnostics".into(),
             PublishDiagnosticsParams {
                 uri,
-                diagnostics
+                diagnostics,
+                version: None,
             }
         ));
         Ok(())

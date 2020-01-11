@@ -5,15 +5,15 @@ name = "rnix-lsp"
 version = "0.1.0"
 
 [dependencies]
-env_logger = "0.6.2"
+env_logger = "0.7.1"
 log = "0.4.8"
-lsp-server = "0.2.0"
-lsp-types = { version = "0.61.0", features = ["proposed"] }
-nixpkgs-fmt = { git = "https://github.com/nix-community/nixpkgs-fmt", rev = "064e542d4b2077b5ba23e9162c8261fb1eb10824" }
-rnix = "0.6.0"
-serde_json = "1.0.40"
+lsp-server = "0.3.1"
+lsp-types = { version = "0.68.1", features = ["proposed"] }
+nixpkgs-fmt = { git = "https://github.com/nix-community/nixpkgs-fmt", rev = "v0.6.1" }
+rnix = "0.7.1"
+serde_json = "1.0.44"
 libc = "0.2.66"
 serde = "1.0.104"
 
 [patch.crates-io]
-rnix = { git = "https://github.com/nix-community/rnix-parser", rev = "032d580a17d0e924a1c105f2413b5e951019982b" }
+rnix = { git = "https://github.com/nix-community/rnix-parser", rev = "1c8de08b73cdc8770f9f05d6d09910f1731a4a83" }

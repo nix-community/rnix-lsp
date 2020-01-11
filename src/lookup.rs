@@ -30,7 +30,7 @@ impl App {
     {
         let mut scope = HashMap::new();
 
-        if let Some(entry) = SetEntry::cast(node.clone()) {
+        if let Some(entry) = KeyValue::cast(node.clone()) {
             node = entry.value()?;
         }
 
@@ -69,7 +69,7 @@ impl App {
             };
         }
 
-        if let Some(set) = Set::cast(node) {
+        if let Some(set) = AttrSet::cast(node) {
             utils::populate(&file, &mut scope, &set);
         }
         Some(scope)

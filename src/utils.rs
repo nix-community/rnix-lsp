@@ -63,7 +63,7 @@ pub fn ident_at(root: SyntaxNode, offset: usize) -> Option<CursorInfo> {
         TokenAtOffset::Between(left, right) => Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()))
     }?;
     let parent = ident.node().parent();
-    if let Some(attr) = parent.clone().and_then(Attribute::cast) {
+    if let Some(attr) = parent.clone().and_then(Key::cast) {
         let mut path = Vec::new();
         for item in attr.path() {
             if item == *ident.node() {
@@ -76,9 +76,9 @@ pub fn ident_at(root: SyntaxNode, offset: usize) -> Option<CursorInfo> {
             path.push(Ident::cast(item)?.as_str().into());
         }
         panic!("identifier at cursor is somehow not a child of its parent");
-    } else if let Some(mut index) = parent.clone().and_then(IndexSet::cast) {
+    } else if let Some(mut index) = parent.clone().and_then(Select::cast) {
         let mut path = Vec::new();
-        while let Some(new) = IndexSet::cast(index.set()?) {
+        while let Some(new) = Select::cast(index.set()?) {
             path.push(Ident::cast(new.index()?)?.as_str().into());
             index = new;
         }
@@ -137,8 +137,8 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
     while let Some(node) = current {
         match ParsedType::try_from(node.clone()) {
             Ok(ParsedType::LetIn(let_in)) => { populate(&file, &mut scope, &let_in); },
-            Ok(ParsedType::Let(let_)) => { populate(&file, &mut scope, &let_); },
-            Ok(ParsedType::Set(set)) => if set.recursive() {
+            Ok(ParsedType::LegacyLet(let_)) => { populate(&file, &mut scope, &let_); },
+            Ok(ParsedType::AttrSet(set)) => if set.recursive() {
                 populate(&file, &mut scope, &set);
             },
             Ok(ParsedType::Lambda(lambda)) => match ParsedType::try_from(lambda.arg()?) {
