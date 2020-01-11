@@ -1,11 +1,12 @@
-{ pkgs_fn ? import <nixpkgs> }:
+{
+  sources ? import ./nix/sources.nix,
+  pkgs ? import sources.nixpkgs {},
+  nur ? pkgs.callPackage sources.NUR {},
+}:
 
 let
-  overlay = import (builtins.fetchTarball https://github.com/mozilla/nixpkgs-mozilla/archive/master.tar.gz);
-  nixpkgs = pkgs_fn { overlays = [ overlay ]; };
-  nightly = nixpkgs.latest.rustChannels.stable;
-in
-nixpkgs.mkShell {
+  rustVersion = nur.repos.mozilla.latest.rustChannels.stable;
+in pkgs.mkShell {
   PATH = "${builtins.getEnv "PATH"}:${toString ./target/debug}";
-  buildInputs = [ nightly.rust ];
+  buildInputs = [ rustVersion.rust ];
 }

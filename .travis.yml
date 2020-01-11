@@ -1,2 +1,6 @@
 language: nix
-script: "nix-shell --run 'cargo test --all --verbose'"
+
+jobs:
+  include:
+    - script: "nix-shell --run 'cargo test --all --verbose'"
+    - script: "nix-build ."
