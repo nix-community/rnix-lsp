@@ -6,20 +6,27 @@ use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestI
 use lsp_types::{
     *,
     notification::{*, Notification as _},
-    request::{*, Request as _},
+    request::{*, Request as RequestTrait},
 };
 use rnix::{parser::*, types::*, SyntaxNode, TextUnit};
 use std::{
     collections::HashMap,
     panic,
+    process,
     rc::Rc,
 };
 
 type Error = Box<dyn std::error::Error>;
 
-const DUMMY_ERROR: &str = "A fatal error has occured and nix-lsp has shut down.";
-
-fn main() -> Result<(), &'static str> {
+fn main() {
+    if let Err(err) = real_main() {
+        error!("Error: {} ({:?})", err, err);
+        error!("A fatal error has occured and rnix-lsp will shut down.");
+        drop(err);
+        process::exit(libc::EXIT_FAILURE);
+    }
+}
+fn real_main() -> Result<(), Error> {
     env_logger::init();
     panic::set_hook(Box::new(move |panic| {
         error!("----- Panic -----");
@@ -36,7 +43,6 @@ fn main() -> Result<(), &'static str> {
             }
         )),
         completion_provider: Some(CompletionOptions {
-            resolve_provider: Some(true),
             ..Default::default()
         }),
         definition_provider: Some(true),
@@ -46,20 +52,14 @@ fn main() -> Result<(), &'static str> {
         ..Default::default()
     }).unwrap();
 
-    if let Err(err) = connection.initialize(capabilities) {
-        error!("{:?}", err);
-        return Err(DUMMY_ERROR);
-    }
+    connection.initialize(capabilities)?;
 
     App {
         files: HashMap::new(),
         conn: connection,
     }.main();
 
-    if let Err(err) = io_threads.join() {
-        error!("Unable to shut down I/O threads: {}", err);
-        return Err(DUMMY_ERROR);
-    }
+    io_threads.join()?;
 
     Ok(())
 }
@@ -94,7 +94,14 @@ impl App {
                         Ok(false) => if let Err(err) = self.handle_request(req) {
                             self.err(id, err);
                         },
-                        Err(err) => self.err(id, err),
+                        Err(err) => {
+                            // This only fails if a shutdown was
+                            // requested in the first place, so it
+                            // should definitely break out of the
+                            // loop.
+                            self.err(id, err);
+                            break;
+                        },
                     }
                 },
                 Message::Notification(notification) => {
@@ -105,56 +112,57 @@ impl App {
         }
     }
     fn handle_request(&mut self, req: Request) -> Result<(), Error> {
-        match &*req.method {
-            GotoDefinition::METHOD => {
-                let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
-                if let Some(pos) = self.lookup_definition(params) {
-                    self.reply(Response::new_ok(req.id, pos));
-                } else {
-                    self.reply(Response::new_ok(req.id, ()));
+        fn cast<Kind>(req: &mut Option<Request>) -> Option<(RequestId, Kind::Params)>
+        where
+            Kind: RequestTrait,
+            Kind::Params: serde::de::DeserializeOwned,
+        {
+            match req.take().unwrap().extract::<Kind::Params>(Kind::METHOD) {
+                Ok(value) => Some(value),
+                Err(owned) => {
+                    *req = Some(owned);
+                    None
+                },
+            }
+        }
+        let mut req = Some(req);
+        if let Some((id, params)) = cast::<GotoDefinition>(&mut req) {
+            if let Some(pos) = self.lookup_definition(params) {
+                self.reply(Response::new_ok(id, pos));
+            } else {
+                self.reply(Response::new_ok(id, ()));
+            }
+        } else if let Some((id, params)) = cast::<Completion>(&mut req) {
+            let completions = self.completions(params.text_document_position).unwrap_or_default();
+            self.reply(Response::new_ok(id, completions));
+        } else if let Some((id, params)) = cast::<Rename>(&mut req) {
+            let changes = self.rename(params);
+            self.reply(Response::new_ok(id, WorkspaceEdit {
+                changes,
+                ..Default::default()
+            }));
+        } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
+            let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
+                let fmt = nixpkgs_fmt::reformat_node(&ast.node());
+                fmt.text_diff().iter()
+                    .filter(|range| !range.delete.is_empty() || !range.insert.is_empty())
+                    .map(|edit| TextEdit {
+                        range: utils::range(&code, edit.delete),
+                        new_text: edit.insert.to_string()
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            self.reply(Response::new_ok(id, changes));
+        } else if let Some((id, params)) = cast::<SelectionRangeRequest>(&mut req) {
+            let mut selections = Vec::new();
+            if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
+                for pos in params.positions {
+                    selections.push(self.selection_ranges(&ast.node(), code, pos));
                 }
-            },
-            Completion::METHOD => {
-                let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
-                let completions = self.completions(params).unwrap_or_default();
-                self.reply(Response::new_ok(req.id, completions));
-            },
-            Rename::METHOD => {
-                let params: RenameParams = serde_json::from_value(req.params)?;
-                let changes = self.rename(params);
-                self.reply(Response::new_ok(req.id, WorkspaceEdit {
-                    changes,
-                    ..Default::default()
-                }));
-            },
-            Formatting::METHOD => {
-                let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
-
-                let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
-                    let fmt = nixpkgs_fmt::reformat_node(&ast.node());
-                    fmt.text_diff().iter()
-                        .filter(|range| !range.delete.is_empty() || !range.insert.is_empty())
-                        .map(|edit| TextEdit {
-                            range: utils::range(&code, edit.delete),
-                            new_text: edit.insert.to_string()
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-                self.reply(Response::new_ok(req.id, changes));
-            },
-            SelectionRangeRequest::METHOD => {
-                let params: SelectionRangeParams = serde_json::from_value(req.params)?;
-                let mut selections = Vec::new();
-                if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
-                    for pos in params.positions {
-                        selections.push(self.selection_ranges(&ast.node(), code, pos));
-                    }
-                }
-                self.reply(Response::new_ok(req.id, selections));
-            },
-            _ => (),
+            }
+            self.reply(Response::new_ok(id, selections));
         }
         Ok(())
     }

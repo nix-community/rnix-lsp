@@ -12,6 +12,8 @@ lsp-types = { version = "0.61.0", features = ["proposed"] }
 nixpkgs-fmt = { git = "https://github.com/nix-community/nixpkgs-fmt", rev = "064e542d4b2077b5ba23e9162c8261fb1eb10824" }
 rnix = "0.6.0"
 serde_json = "1.0.40"
+libc = "0.2.66"
+serde = "1.0.104"
 
 [patch.crates-io]
 rnix = { git = "https://github.com/nix-community/rnix-parser", rev = "032d580a17d0e924a1c105f2413b5e951019982b" }

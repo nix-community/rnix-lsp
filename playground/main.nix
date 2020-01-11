@@ -30,7 +30,7 @@ let
 
     # Ignoring shadowed variables is currently broken
     shadowed = rec {
-      rename_me = "unrelated so, if possible, don't *actually* rename me";
+      rename_me = "unrelated, so if possible, don't *actually* rename me";
       hopefully_unchanged_usage = rename_me;
     };
   };
