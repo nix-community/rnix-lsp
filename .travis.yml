@@ -1,6 +1,13 @@
 language: nix
+nix: 2.3.2
+
+before_script:
+  - nix-channel --add https://nixos.org/channels/nixos-unstable nixpkgs
+  - nix-channel --update
 
 jobs:
   include:
-    - script: "nix-shell --run 'cargo test --all --verbose'"
-    - script: "nix-build ."
+    - name:   "Check project itself"
+      script: "nix-shell --run 'cargo test --all --verbose'"
+    - name:   "Check default.nix"
+      script: "nix-build ."
