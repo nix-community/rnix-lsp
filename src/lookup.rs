@@ -12,11 +12,10 @@ use std::{
 };
 
 impl App {
-    pub fn scope_for_ident(&mut self, file: Url, root: SyntaxNode, offset: usize)
-        -> Option<(Ident, HashMap<String, Var>)>
+    pub fn scope_for_ident(&mut self, file: Url, root: &SyntaxNode, offset: usize) -> Option<(Ident, HashMap<String, Var>)>
     {
         let mut file = Rc::new(file);
-        let info = utils::ident_at(root, offset)?;
+        let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
         let mut entries = utils::scope_for(&file, ident.node().clone())?;
         for var in info.path {
@@ -40,13 +39,13 @@ impl App {
                 None => break,
                 Some(apply) => apply,
             };
-            if Ident::cast(apply.lambda()?).map(|ident| ident.as_str() != "import").unwrap_or(true) {
+            if Ident::cast(apply.lambda()?).map_or(true, |ident| ident.as_str() != "import") {
                 break;
             }
             let (_anchor, path) = match Value::cast(apply.value()?) {
                 None => break,
                 Some(value) => match value.to_value() {
-                    Ok(ParsedValue::Path(_anchor, path)) => (_anchor, path),
+                    Ok(ParsedValue::Path(anchor, path)) => (anchor, path),
                     _ => break,
                 }
             };
@@ -60,10 +59,10 @@ impl App {
                     ast.root().inner()?.clone()
                 },
                 Entry::Vacant(placeholder) => {
-                    let code = fs::read_to_string(&path).ok()?;
-                    let ast = rnix::parse(&code);
+                    let content = fs::read_to_string(&path).ok()?;
+                    let ast = rnix::parse(&content);
                     let node = ast.root().inner()?.clone();
-                    placeholder.insert((ast, code));
+                    placeholder.insert((ast, content));
                     node
                 }
             };

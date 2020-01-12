@@ -1,3 +1,26 @@
+#![warn(
+    // Harden built-in lints
+    missing_copy_implementations,
+    missing_debug_implementations,
+
+    // Harden clippy lints
+    clippy::cargo_common_metadata,
+    clippy::clone_on_ref_ptr,
+    clippy::dbg_macro,
+    clippy::decimal_literal_representation,
+    clippy::float_cmp_const,
+    clippy::get_unwrap,
+    clippy::integer_arithmetic,
+    clippy::integer_division,
+    clippy::pedantic,
+)]
+#![allow(
+    // filter().map() can sometimes be more readable
+    clippy::filter_map,
+    // Most integer arithmetics are within an allocated region, so we know it's safe
+    clippy::integer_arithmetic,
+)]
+
 mod lookup;
 mod utils;
 
@@ -8,7 +31,7 @@ use lsp_types::{
     notification::{*, Notification as _},
     request::{*, Request as RequestTrait},
 };
-use rnix::{parser::*, types::*, SyntaxNode, TextUnit};
+use rnix::{parser::*, types::*, SyntaxNode};
 use std::{
     collections::HashMap,
     panic,
@@ -39,17 +62,17 @@ fn real_main() -> Result<(), Error> {
             TextDocumentSyncOptions {
                 open_close: Some(true),
                 change: Some(TextDocumentSyncKind::Full),
-                ..Default::default()
+                ..TextDocumentSyncOptions::default()
             }
         )),
         completion_provider: Some(CompletionOptions {
-            ..Default::default()
+            ..CompletionOptions::default()
         }),
         definition_provider: Some(true),
         document_formatting_provider: Some(true),
         rename_provider: Some(RenameProviderCapability::Simple(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
-        ..Default::default()
+        ..ServerCapabilities::default()
     }).unwrap();
 
     connection.initialize(capabilities)?;
@@ -133,13 +156,13 @@ impl App {
                 self.reply(Response::new_ok(id, ()));
             }
         } else if let Some((id, params)) = cast::<Completion>(&mut req) {
-            let completions = self.completions(params.text_document_position).unwrap_or_default();
+            let completions = self.completions(&params.text_document_position).unwrap_or_default();
             self.reply(Response::new_ok(id, completions));
         } else if let Some((id, params)) = cast::<Rename>(&mut req) {
             let changes = self.rename(params);
             self.reply(Response::new_ok(id, WorkspaceEdit {
                 changes,
-                ..Default::default()
+                ..WorkspaceEdit::default()
             }));
         } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
             let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
@@ -159,7 +182,7 @@ impl App {
             let mut selections = Vec::new();
             if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
                 for pos in params.positions {
-                    selections.push(self.selection_ranges(&ast.node(), code, pos));
+                    selections.push(utils::selection_ranges(&ast.node(), code, pos));
                 }
             }
             self.reply(Response::new_ok(id, selections));
@@ -188,27 +211,28 @@ impl App {
         Ok(())
     }
     fn lookup_definition(&mut self, params: TextDocumentPositionParams) -> Option<Location> {
-        let (ast, code) = self.files.get(&params.text_document.uri)?;
-        let offset = utils::lookup_pos(code, params.position)?;
-        let node = ast.node().to_owned();
-        let (name, scope) = self.scope_for_ident(params.text_document.uri, node, offset)?;
+        let (current_ast, current_content) = self.files.get(&params.text_document.uri)?;
+        let offset = utils::lookup_pos(current_content, params.position)?;
+        let node = current_ast.node();
+        let (name, scope) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
 
         let var = scope.get(name.as_str())?;
-        let (_ast, code) = self.files.get(&var.file)?;
+        let (_definition_ast, definition_content) = self.files.get(&var.file)?;
         Some(Location {
             uri: (*var.file).clone(),
-            range: utils::range(code, var.key.text_range())
+            range: utils::range(definition_content, var.key.text_range())
         })
     }
-    fn completions(&mut self, params: TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {
-        let (ast, code) = self.files.get(&params.text_document.uri)?;
-        let offset = utils::lookup_pos(code, params.position)?;
+    #[allow(clippy::shadow_unrelated)] // false positive
+    fn completions(&mut self, params: &TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {
+        let (ast, content) = self.files.get(&params.text_document.uri)?;
+        let offset = utils::lookup_pos(content, params.position)?;
 
-        let node = ast.node().to_owned();
-        let (name, scope) = self.scope_for_ident(params.text_document.uri.clone(), node, offset)?;
+        let node = ast.node();
+        let (name, scope) = self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
 
         // Re-open, because scope_for_ident may mutably borrow
-        let (_ast, code) = self.files.get(&params.text_document.uri)?;
+        let (_, content) = self.files.get(&params.text_document.uri)?;
 
         let mut completions = Vec::new();
         for var in scope.keys() {
@@ -216,34 +240,23 @@ impl App {
                 completions.push(CompletionItem {
                     label: var.clone(),
                     text_edit: Some(TextEdit {
-                        range: utils::range(code, name.node().text_range()),
+                        range: utils::range(content, name.node().text_range()),
                         new_text: var.clone()
                     }),
-                    ..Default::default()
+                    ..CompletionItem::default()
                 });
             }
         }
         Some(completions)
     }
     fn rename(&mut self, params: RenameParams) -> Option<HashMap<Url, Vec<TextEdit>>> {
-        let uri = params.text_document_position.text_document.uri;
-        let (ast, code) = self.files.get(&uri)?;
-        let offset = utils::lookup_pos(code, params.text_document_position.position)?;
-        let info = utils::ident_at(ast.node(), offset)?;
-        if !info.path.is_empty() {
-            // Renaming within a set not supported
-            return None;
-        }
-        let old = info.ident;
-        let scope = utils::scope_for(&Rc::new(uri.clone()), old.node().clone())?;
-
         struct Rename<'a> {
             edits: Vec<TextEdit>,
             code: &'a str,
             old: &'a str,
             new_name: String,
         }
-        fn rename_in_node(rename: &mut Rename, node: SyntaxNode) -> Option<()> {
+        fn rename_in_node(rename: &mut Rename, node: &SyntaxNode) -> Option<()> {
             if let Some(ident) = Ident::cast(node.clone()) {
                 if ident.as_str() == rename.old {
                     rename.edits.push(TextEdit {
@@ -252,19 +265,30 @@ impl App {
                     });
                 }
             } else if let Some(index) = Select::cast(node.clone()) {
-                rename_in_node(rename, index.set()?);
+                rename_in_node(rename, &index.set()?);
             } else if let Some(attr) = Key::cast(node.clone()) {
                 let mut path = attr.path();
                 if let Some(ident) = path.next() {
-                    rename_in_node(rename, ident);
+                    rename_in_node(rename, &ident);
                 }
             } else {
                 for child in node.children() {
-                    rename_in_node(rename, child);
+                    rename_in_node(rename, &child);
                 }
             }
             Some(())
         }
+
+        let uri = params.text_document_position.text_document.uri;
+        let (ast, code) = self.files.get(&uri)?;
+        let offset = utils::lookup_pos(code, params.text_document_position.position)?;
+        let info = utils::ident_at(&ast.node(), offset)?;
+        if !info.path.is_empty() {
+            // Renaming within a set not supported
+            return None;
+        }
+        let old = info.ident;
+        let scope = utils::scope_for(&Rc::new(uri.clone()), old.node().clone())?;
 
         let mut rename = Rename {
             edits: Vec::new(),
@@ -273,37 +297,11 @@ impl App {
             new_name: params.new_name
         };
         let definition = scope.get(old.as_str())?;
-        rename_in_node(&mut rename, definition.set.clone());
+        rename_in_node(&mut rename, &definition.set);
 
         let mut changes = HashMap::new();
         changes.insert(uri, rename.edits);
         Some(changes)
-    }
-    fn selection_ranges(&self, root: &SyntaxNode, code: &str, pos: Position) -> Option<SelectionRange> {
-        let pos = utils::lookup_pos(code, pos)?;
-        let node = root.token_at_offset(TextUnit::from_usize(pos)).left_biased()?;
-
-        let mut root = None;
-        let mut cursor = &mut root;
-
-        let mut last = None;
-        for parent in node.ancestors() {
-            // De-duplicate
-            if last.as_ref() == Some(&parent) {
-                continue;
-            }
-
-            let range = parent.text_range();
-            *cursor = Some(Box::new(SelectionRange {
-                range: utils::range(code, range),
-                parent: None,
-            }));
-            cursor = &mut cursor.as_mut().unwrap().parent;
-
-            last = Some(parent);
-        }
-
-        root.map(|b| *b)
     }
     fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();
@@ -314,7 +312,7 @@ impl App {
                     range: utils::range(code, node),
                     severity: Some(DiagnosticSeverity::Error),
                     message: err.to_string(),
-                    ..Default::default()
+                    ..Diagnostic::default()
                 });
             }
         }

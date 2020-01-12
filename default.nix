@@ -13,9 +13,6 @@ in naersk.buildPackage {
   name = "rnix-lsp";
   root = nur.repos.jd91mzm2.lib.cleanSourceRust ./.;
 
-  nativeBuildInputs = with pkgs; [ /* pkgconfig */ ];
-  buildInputs = with pkgs; [ /* openssl */ ];
-
   cargo = rust.cargo;
   rustc = rust.rustc;
 }

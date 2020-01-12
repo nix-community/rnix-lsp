@@ -25,6 +25,7 @@ pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
     let mut offset = 0;
     for _ in 0..pos.line {
         let line = lines.next()?;
+
         offset += line.len() + 1;
     }
 
@@ -33,14 +34,14 @@ pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
             Some(
                 offset +
                     line.chars()
-                        .take(pos.character as usize)
-                        .map(char::len_utf8)
+                    .take(usize::try_from(pos.character).ok()?)
+                    .map(char::len_utf8)
                         .sum::<usize>()
             )
         })
 }
 pub fn offset_to_pos(code: &str, offset: usize) -> Position {
-    let start_of_line = code[..offset].rfind('\n').map(|n| n+1).unwrap_or(0);
+    let start_of_line = code[..offset].rfind('\n').map_or(0, |n| n+1);
     Position {
         line: code[..start_of_line].chars().filter(|&c| c == '\n').count() as u64,
         character: code[start_of_line..offset].chars().map(|c| c.len_utf16() as u64).sum()
@@ -56,7 +57,7 @@ pub struct CursorInfo {
     pub path: Vec<String>,
     pub ident: Ident,
 }
-pub fn ident_at(root: SyntaxNode, offset: usize) -> Option<CursorInfo> {
+pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
     let ident = match root.token_at_offset(TextUnit::from_usize(offset)) {
         TokenAtOffset::None => None,
         TokenAtOffset::Single(node) => Ident::cast(node.parent()),
@@ -76,7 +77,7 @@ pub fn ident_at(root: SyntaxNode, offset: usize) -> Option<CursorInfo> {
             path.push(Ident::cast(item)?.as_str().into());
         }
         panic!("identifier at cursor is somehow not a child of its parent");
-    } else if let Some(mut index) = parent.clone().and_then(Select::cast) {
+    } else if let Some(mut index) = parent.and_then(Select::cast) {
         let mut path = Vec::new();
         while let Some(new) = Select::cast(index.set()?) {
             path.push(Ident::cast(new.index()?)?.as_str().into());
@@ -109,7 +110,7 @@ pub struct Var {
     pub key: SyntaxNode,
     pub value: Option<SyntaxNode>
 }
-pub fn populate<'a, T: EntryHolder>(
+pub fn populate<T: EntryHolder>(
     file: &Rc<Url>,
     scope: &mut HashMap<String, Var>,
     set: &T
@@ -171,4 +172,30 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
     }
 
     Some(scope)
+}
+pub fn selection_ranges(root: &SyntaxNode, content: &str, pos: Position) -> Option<SelectionRange> {
+    let pos = lookup_pos(content, pos)?;
+    let node = root.token_at_offset(TextUnit::from_usize(pos)).left_biased()?;
+
+    let mut root = None;
+    let mut cursor = &mut root;
+
+    let mut last = None;
+    for parent in node.ancestors() {
+        // De-duplicate
+        if last.as_ref() == Some(&parent) {
+            continue;
+        }
+
+        let text_range = parent.text_range();
+        *cursor = Some(Box::new(SelectionRange {
+            range: range(content, text_range),
+            parent: None,
+        }));
+        cursor = &mut cursor.as_mut().unwrap().parent;
+
+        last = Some(parent);
+    }
+
+    root.map(|b| *b)
 }
