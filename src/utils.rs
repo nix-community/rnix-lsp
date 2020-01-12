@@ -1,10 +1,16 @@
 use lsp_types::*;
-use rnix::{parser::*, types::*};
-use rowan::{LeafAtOffset, TextRange, TextUnit, TreeArc};
+use rnix::{
+    types::*,
+    SyntaxNode,
+    TextRange,
+    TextUnit,
+    TokenAtOffset,
+};
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     path::PathBuf,
-    rc::Rc
+    rc::Rc,
 };
 
 pub fn uri_path(uri: &Url) -> Option<PathBuf> {
@@ -33,15 +39,6 @@ pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
             )
         })
 }
-pub fn lookup_range(code: &str, range: Range) -> Option<TextRange> {
-    let start = lookup_pos(code, range.start)?;
-    let end = lookup_pos(code, range.end)?;
-    let res = TextRange::from_to(
-        (start as u32).into(),
-        (end as u32).into(),
-    );
-    Some(res)
-}
 pub fn offset_to_pos(code: &str, offset: usize) -> Position {
     let start_of_line = code[..offset].rfind('\n').map(|n| n+1).unwrap_or(0);
     Position {
@@ -55,42 +52,42 @@ pub fn range(code: &str, range: TextRange) -> Range {
         end: offset_to_pos(code, range.end().to_usize()),
     }
 }
-pub struct CursorInfo<'a> {
+pub struct CursorInfo {
     pub path: Vec<String>,
-    pub ident: &'a Ident
+    pub ident: Ident,
 }
-pub fn ident_at(root: &Node, offset: usize) -> Option<CursorInfo> {
-    let ident = match root.leaf_at_offset(TextUnit::from_usize(offset)) {
-        LeafAtOffset::None => None,
-        LeafAtOffset::Single(node) => Ident::cast(node),
-        LeafAtOffset::Between(left, right) => Ident::cast(left).or_else(|| Ident::cast(right))
+pub fn ident_at(root: SyntaxNode, offset: usize) -> Option<CursorInfo> {
+    let ident = match root.token_at_offset(TextUnit::from_usize(offset)) {
+        TokenAtOffset::None => None,
+        TokenAtOffset::Single(node) => Ident::cast(node.parent()),
+        TokenAtOffset::Between(left, right) => Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()))
     }?;
     let parent = ident.node().parent();
-    if let Some(attr) = parent.and_then(Attribute::cast) {
+    if let Some(attr) = parent.clone().and_then(Key::cast) {
         let mut path = Vec::new();
         for item in attr.path() {
-            if item == ident.node() {
+            if item == *ident.node() {
                 return Some(CursorInfo {
                     path,
-                    ident
+                    ident,
                 });
             }
 
             path.push(Ident::cast(item)?.as_str().into());
         }
         panic!("identifier at cursor is somehow not a child of its parent");
-    } else if let Some(mut index) = parent.and_then(IndexSet::cast) {
+    } else if let Some(mut index) = parent.clone().and_then(Select::cast) {
         let mut path = Vec::new();
-        while let Some(new) = IndexSet::cast(index.set()) {
-            path.push(Ident::cast(new.index())?.as_str().into());
+        while let Some(new) = Select::cast(index.set()?) {
+            path.push(Ident::cast(new.index()?)?.as_str().into());
             index = new;
         }
-        if index.set() != ident.node() {
+        if index.set()? != *ident.node() {
             // Only push if not the cursor ident, so that
             // a . b
             //  ^
             // is not [a] and a, but rather [] and a
-            path.push(Ident::cast(index.set())?.as_str().into());
+            path.push(Ident::cast(index.set()?)?.as_str().into());
         }
         path.reverse();
         Some(CursorInfo {
@@ -108,17 +105,17 @@ pub fn ident_at(root: &Node, offset: usize) -> Option<CursorInfo> {
 #[derive(Debug)]
 pub struct Var {
     pub file: Rc<Url>,
-    pub set: TreeArc<Types, Node>,
-    pub key: TreeArc<Types, Node>,
-    pub value: Option<TreeArc<Types, Node>>
+    pub set: SyntaxNode,
+    pub key: SyntaxNode,
+    pub value: Option<SyntaxNode>
 }
 pub fn populate<'a, T: EntryHolder>(
     file: &Rc<Url>,
     scope: &mut HashMap<String, Var>,
     set: &T
-) {
+) -> Option<()> {
     for entry in set.entries() {
-        let attr = entry.key();
+        let attr = entry.key()?;
         let mut path = attr.path();
         if let Some(ident) = path.next().and_then(Ident::cast) {
             if !scope.contains_key(ident.as_str()) {
@@ -126,60 +123,52 @@ pub fn populate<'a, T: EntryHolder>(
                     file: Rc::clone(file),
                     set: set.node().to_owned(),
                     key: ident.node().to_owned(),
-                    value: Some(entry.value().to_owned())
+                    value: Some(entry.value()?.to_owned())
                 });
             }
         }
     }
+    Some(())
 }
-pub fn scope_for(file: &Rc<Url>, node: &Node) -> HashMap<String, Var> {
+pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var>> {
     let mut scope = HashMap::new();
 
     let mut current = Some(node);
     while let Some(node) = current {
-        if let Some(let_in) = LetIn::cast(node) {
-            populate(&file, &mut scope, let_in);
-        } else if let Some(let_) = Let::cast(node) {
-            populate(&file, &mut scope, let_);
-        } else if let Some(set) = Set::cast(node) {
-            if set.recursive() {
-                populate(&file, &mut scope, set);
-            }
-        } else if let Some(lambda) = Lambda::cast(node) {
-            if let Some(ident) = Ident::cast(lambda.arg()) {
-                if !scope.contains_key(ident.as_str()) {
+        match ParsedType::try_from(node.clone()) {
+            Ok(ParsedType::LetIn(let_in)) => { populate(&file, &mut scope, &let_in); },
+            Ok(ParsedType::LegacyLet(let_)) => { populate(&file, &mut scope, &let_); },
+            Ok(ParsedType::AttrSet(set)) => if set.recursive() {
+                populate(&file, &mut scope, &set);
+            },
+            Ok(ParsedType::Lambda(lambda)) => match ParsedType::try_from(lambda.arg()?) {
+                Ok(ParsedType::Ident(ident)) => if !scope.contains_key(ident.as_str()) {
                     scope.insert(ident.as_str().into(), Var {
                         file: Rc::clone(&file),
-                        set: lambda.node().to_owned(),
-                        key: ident.node().to_owned(),
+                        set: lambda.node().clone(),
+                        key: ident.node().clone(),
                         value: None
                     });
-                }
-            } else if let Some(pattern) = Pattern::cast(lambda.arg()) {
-                for entry in pattern.entries() {
-                    let ident = entry.name();
-                    if !scope.contains_key(ident.as_str()) {
-                        scope.insert(ident.as_str().into(), Var {
-                            file: Rc::clone(&file),
-                            set: lambda.node().to_owned(),
-                            key: ident.node().to_owned(),
-                            value: None
-                        });
+                },
+                Ok(ParsedType::Pattern(pattern)) => {
+                    for entry in pattern.entries() {
+                        let ident = entry.name()?;
+                        if !scope.contains_key(ident.as_str()) {
+                            scope.insert(ident.as_str().into(), Var {
+                                file: Rc::clone(&file),
+                                set: lambda.node().to_owned(),
+                                key: ident.node().to_owned(),
+                                value: None
+                            });
+                        }
                     }
-                }
-            }
+                },
+                _ => ()
+            },
+            _ => ()
         }
         current = node.parent();
     }
 
-    scope
-}
-
-pub fn extend(root: &Node, range: TextRange) -> TextRange {
-    let node = root.covering_node(range);
-
-    match node.ancestors().skip_while(|n| n.range() == range).next() {
-        None => range,
-        Some(parent) => parent.range(),
-    }
+    Some(scope)
 }

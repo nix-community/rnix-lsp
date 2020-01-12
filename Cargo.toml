@@ -1,15 +1,19 @@
 [package]
 authors = ["jD91mZM2 <me@krake.one>"]
 edition = "2018"
-name = "nix-lsp"
+name = "rnix-lsp"
 version = "0.1.0"
 
 [dependencies]
-failure = "0.1.5"
-lsp-types = "0.56.0"
-rnix = "0.5.1"
-rowan = "0.3.2"
-serde = "1.0.85"
-serde_derive = "1.0.85"
-serde_json = "1.0.37"
-url = "1.7.2"
+env_logger = "0.7.1"
+log = "0.4.8"
+lsp-server = "0.3.1"
+lsp-types = { version = "0.68.1", features = ["proposed"] }
+nixpkgs-fmt = { git = "https://github.com/nix-community/nixpkgs-fmt", rev = "18010762f814946d4d53c5ee2cb40ab060c24165" }
+rnix = "0.7.1"
+serde_json = "1.0.44"
+libc = "0.2.66"
+serde = "1.0.104"
+
+# [patch.crates-io]
+# rnix = { git = "https://github.com/nix-community/rnix-parser", rev = "1c8de08b73cdc8770f9f05d6d09910f1731a4a83" }
