@@ -258,7 +258,7 @@ dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "ignore 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
- "rnix 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rnix 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rowan 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.44 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -315,7 +315,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "rnix"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cbitset 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -332,7 +332,7 @@ dependencies = [
  "lsp-server 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lsp-types 0.68.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nixpkgs-fmt 0.6.1 (git+https://github.com/nix-community/nixpkgs-fmt?rev=18010762f814946d4d53c5ee2cb40ab060c24165)",
- "rnix 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rnix 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.44 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -592,7 +592,7 @@ dependencies = [
 "checksum quote 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "053a8c8bcc71fcce321828dc897a98ab9760bef03a4fc36693c231e5b3216cfe"
 "checksum regex 1.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "b5508c1941e4e7cb19965abef075d35a9a8b5cdf0846f30b4050e9b55dc55e87"
 "checksum regex-syntax 0.6.13 (registry+https://github.com/rust-lang/crates.io-index)" = "e734e891f5b408a29efbf8309e656876276f49ab6a6ac208600b4419bd893d90"
-"checksum rnix 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ab1d6816b24e552bd47a4bed172dff60c67ca7a0b073211e6d3799298d30002c"
+"checksum rnix 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)" = "2192039d0f383be6e0edb37718152c764509ce800cafe51f58f88b27bf0e4714"
 "checksum rowan 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)" = "fc3a6fb2a35518af7cab43ec4e21ca82eb086a8b3bb1739e426dc3923d459607"
 "checksum rustc-hash 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "7540fc8b0c49f096ee9c961cda096467dce8084bec6bdca2fc83895fd9b28cb8"
 "checksum ryu 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "bfa8506c1de11c9c4e4c38863ccbe02a305c8188e85a05a784c9e11e1c3910c8"
