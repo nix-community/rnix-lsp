@@ -1,0 +1,36 @@
+{
+    "inputs": {
+        "jd91mzm2": {
+            "inputs": {
+                "nixpkgs": {
+                    "inputs": {},
+                    "narHash": "sha256-NB+H7zK3BB//zM127FqgbG4iAfY+nS/IOyO+uGWA5Ho=",
+                    "originalUrl": "nixpkgs",
+                    "url": "github:edolstra/nixpkgs/7845bf5f4b3013df1cf036e9c9c3a55a30331db9"
+                }
+            },
+            "narHash": "sha256-9ofYvO8AajH3HcFYQKnmUMmC9G6SPU76GLY4AW49loM=",
+            "originalUrl": "git+https://gitlab.com/jD91mZM2/nur-packages",
+            "url": "git+https://gitlab.com/jD91mZM2/nur-packages?ref=master&rev=6a6bc95258d16659e5c37d4cd77b3643c6c16395"
+        },
+        "mozilla": {
+            "inputs": {},
+            "narHash": "sha256-PMliZ6YzYoMY2dt7Gb85KEI+t9bXFnCS4ixadQIab8A=",
+            "originalUrl": "github:mozilla/nixpkgs-mozilla",
+            "url": "github:mozilla/nixpkgs-mozilla/5300241b41243cb8962fad284f0004afad187dad"
+        },
+        "naersk": {
+            "inputs": {},
+            "narHash": "sha256-vQ0lqJvMSEnwYLOYh1KM2PhD/9jTl3VZT+2LHUpCPUk=",
+            "originalUrl": "github:nmattia/naersk",
+            "url": "github:nmattia/naersk/efafcff2c5a2216cb14ccf9600b7c03e3f9baae1"
+        },
+        "nixpkgs": {
+            "inputs": {},
+            "narHash": "sha256-NB+H7zK3BB//zM127FqgbG4iAfY+nS/IOyO+uGWA5Ho=",
+            "originalUrl": "nixpkgs",
+            "url": "github:edolstra/nixpkgs/7845bf5f4b3013df1cf036e9c9c3a55a30331db9"
+        }
+    },
+    "version": 3
+}
