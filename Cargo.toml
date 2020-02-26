@@ -11,6 +11,7 @@ name = "rnix-lsp"
 version = "0.1.0"
 
 [dependencies]
+dirs = "2.0.2"
 env_logger = "0.7.1"
 libc = "0.2.66"
 log = "0.4.8"
