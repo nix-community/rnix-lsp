@@ -339,7 +339,7 @@ impl App {
     }
     fn document_links(&mut self, params: &DocumentLinkParams) -> Option<Vec<DocumentLink>> {
         let (current_ast, current_content) = self.files.get(&params.text_document.uri)?;
-        let parent_dir = Path::new(params.text_document.uri.path()).parent().unwrap();
+        let parent_dir = Path::new(params.text_document.uri.path()).parent();
         let home_dir = home_dir();
         let home_dir = home_dir.as_ref();
         let mut document_links = vec![];
@@ -348,7 +348,7 @@ impl App {
             if let Some(RValue::Path(anchor, path)) = value {
                 let file_url = match anchor {
                     RAnchor::Absolute => Some(PathBuf::from(&path)),
-                    RAnchor::Relative => Some(Path::new(parent_dir).join(path)),
+                    RAnchor::Relative => parent_dir.map(|p| p.join(path)),
                     RAnchor::Home => home_dir.map(|home| home.join(path)),
                     RAnchor::Store => None,
                 }
