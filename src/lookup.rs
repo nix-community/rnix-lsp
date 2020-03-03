@@ -1,19 +1,22 @@
-use crate::{App, utils::{self, Var}};
-use lsp_types::Url;
-use rnix::{
-    types::*,
-    value::Value as ParsedValue,
-    SyntaxNode,
+use crate::{
+    utils::{self, Var},
+    App,
 };
+use lsp_types::Url;
+use rnix::{types::*, value::Value as ParsedValue, SyntaxNode};
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{hash_map::Entry, HashMap},
     fs,
     rc::Rc,
 };
 
 impl App {
-    pub fn scope_for_ident(&mut self, file: Url, root: &SyntaxNode, offset: usize) -> Option<(Ident, HashMap<String, Var>)>
-    {
+    pub fn scope_for_ident(
+        &mut self,
+        file: Url,
+        root: &SyntaxNode,
+        offset: usize,
+    ) -> Option<(Ident, HashMap<String, Var>)> {
         let mut file = Rc::new(file);
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
@@ -24,9 +27,11 @@ impl App {
         }
         Some((Ident::cast(ident.node().clone()).unwrap(), entries))
     }
-    pub fn scope_from_node(&mut self, file: &mut Rc<Url>, mut node: SyntaxNode)
-        -> Option<HashMap<String, Var>>
-    {
+    pub fn scope_from_node(
+        &mut self,
+        file: &mut Rc<Url>,
+        mut node: SyntaxNode,
+    ) -> Option<HashMap<String, Var>> {
         let mut scope = HashMap::new();
 
         if let Some(entry) = KeyValue::cast(node.clone()) {
@@ -47,7 +52,7 @@ impl App {
                 Some(value) => match value.to_value() {
                     Ok(ParsedValue::Path(anchor, path)) => (anchor, path),
                     _ => break,
-                }
+                },
             };
 
             // TODO use anchor
@@ -57,7 +62,7 @@ impl App {
                 Entry::Occupied(entry) => {
                     let (ast, _code) = entry.get();
                     ast.root().inner()?.clone()
-                },
+                }
                 Entry::Vacant(placeholder) => {
                     let content = fs::read_to_string(&path).ok()?;
                     let ast = rnix::parse(&content);

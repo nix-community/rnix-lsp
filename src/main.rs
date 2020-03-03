@@ -24,17 +24,24 @@
 mod lookup;
 mod utils;
 
+use dirs::home_dir;
 use log::{error, trace, warn};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
+    notification::{Notification as _, *},
+    request::{Request as RequestTrait, *},
     *,
-    notification::{*, Notification as _},
-    request::{*, Request as RequestTrait},
 };
-use rnix::{parser::*, types::*, SyntaxNode};
+use rnix::{
+    parser::*,
+    types::*,
+    value::{Anchor as RAnchor, Value as RValue},
+    SyntaxNode,
+};
 use std::{
     collections::HashMap,
     panic,
+    path::{Path, PathBuf},
     process,
     rc::Rc,
 };
@@ -63,24 +70,30 @@ fn real_main() -> Result<(), Error> {
                 open_close: Some(true),
                 change: Some(TextDocumentSyncKind::Full),
                 ..TextDocumentSyncOptions::default()
-            }
+            },
         )),
         completion_provider: Some(CompletionOptions {
             ..CompletionOptions::default()
         }),
         definition_provider: Some(true),
         document_formatting_provider: Some(true),
+        document_link_provider: Some(DocumentLinkOptions {
+            resolve_provider: Some(false),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        }),
         rename_provider: Some(RenameProviderCapability::Simple(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
-    }).unwrap();
+    })
+    .unwrap();
 
     connection.initialize(capabilities)?;
 
     App {
         files: HashMap::new(),
         conn: connection,
-    }.main();
+    }
+    .main();
 
     io_threads.join()?;
 
@@ -98,13 +111,21 @@ impl App {
     }
     fn notify(&mut self, notification: Notification) {
         trace!("Sending notification: {:#?}", notification);
-        self.conn.sender.send(Message::Notification(notification)).unwrap();
+        self.conn
+            .sender
+            .send(Message::Notification(notification))
+            .unwrap();
     }
     fn err<E>(&mut self, id: RequestId, err: E)
-        where E: std::fmt::Display
+    where
+        E: std::fmt::Display,
     {
         warn!("{}", err);
-        self.reply(Response::new_err(id, ErrorCode::UnknownErrorCode as i32, err.to_string()));
+        self.reply(Response::new_err(
+            id,
+            ErrorCode::UnknownErrorCode as i32,
+            err.to_string(),
+        ));
     }
     fn main(&mut self) {
         while let Ok(msg) = self.conn.receiver.recv() {
@@ -114,9 +135,11 @@ impl App {
                     let id = req.id.clone();
                     match self.conn.handle_shutdown(&req) {
                         Ok(true) => break,
-                        Ok(false) => if let Err(err) = self.handle_request(req) {
-                            self.err(id, err);
-                        },
+                        Ok(false) => {
+                            if let Err(err) = self.handle_request(req) {
+                                self.err(id, err);
+                            }
+                        }
                         Err(err) => {
                             // This only fails if a shutdown was
                             // requested in the first place, so it
@@ -124,12 +147,12 @@ impl App {
                             // loop.
                             self.err(id, err);
                             break;
-                        },
+                        }
                     }
-                },
+                }
                 Message::Notification(notification) => {
                     let _ = self.handle_notification(notification);
-                },
+                }
                 Message::Response(_) => (),
             }
         }
@@ -145,7 +168,7 @@ impl App {
                 Err(owned) => {
                     *req = Some(owned);
                     None
-                },
+                }
             }
         }
         let mut req = Some(req);
@@ -156,22 +179,31 @@ impl App {
                 self.reply(Response::new_ok(id, ()));
             }
         } else if let Some((id, params)) = cast::<Completion>(&mut req) {
-            let completions = self.completions(&params.text_document_position).unwrap_or_default();
+            let completions = self
+                .completions(&params.text_document_position)
+                .unwrap_or_default();
             self.reply(Response::new_ok(id, completions));
         } else if let Some((id, params)) = cast::<Rename>(&mut req) {
             let changes = self.rename(params);
-            self.reply(Response::new_ok(id, WorkspaceEdit {
-                changes,
-                ..WorkspaceEdit::default()
-            }));
+            self.reply(Response::new_ok(
+                id,
+                WorkspaceEdit {
+                    changes,
+                    ..WorkspaceEdit::default()
+                },
+            ));
+        } else if let Some((id, params)) = cast::<DocumentLinkRequest>(&mut req) {
+            let document_links = self.document_links(&params).unwrap_or_default();
+            self.reply(Response::new_ok(id, document_links));
         } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
             let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
                 let fmt = nixpkgs_fmt::reformat_node(&ast.node());
-                fmt.text_diff().iter()
+                fmt.text_diff()
+                    .iter()
                     .filter(|range| !range.delete.is_empty() || !range.insert.is_empty())
                     .map(|edit| TextEdit {
                         range: utils::range(&code, edit.delete),
-                        new_text: edit.insert.to_string()
+                        new_text: edit.insert.to_string(),
                     })
                     .collect()
             } else {
@@ -197,15 +229,16 @@ impl App {
                 let parsed = rnix::parse(&text);
                 self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
                 self.files.insert(params.text_document.uri, (parsed, text));
-            },
+            }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
                 if let Some(change) = params.content_changes.into_iter().last() {
                     let parsed = rnix::parse(&change.text);
                     self.send_diagnostics(params.text_document.uri.clone(), &change.text, &parsed)?;
-                    self.files.insert(params.text_document.uri, (parsed, change.text));
+                    self.files
+                        .insert(params.text_document.uri, (parsed, change.text));
                 }
-            },
+            }
             _ => (),
         }
         Ok(())
@@ -220,7 +253,7 @@ impl App {
         let (_definition_ast, definition_content) = self.files.get(&var.file)?;
         Some(Location {
             uri: (*var.file).clone(),
-            range: utils::range(definition_content, var.key.text_range())
+            range: utils::range(definition_content, var.key.text_range()),
         })
     }
     #[allow(clippy::shadow_unrelated)] // false positive
@@ -229,7 +262,8 @@ impl App {
         let offset = utils::lookup_pos(content, params.position)?;
 
         let node = ast.node();
-        let (name, scope) = self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
+        let (name, scope) =
+            self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
 
         // Re-open, because scope_for_ident may mutably borrow
         let (_, content) = self.files.get(&params.text_document.uri)?;
@@ -241,7 +275,7 @@ impl App {
                     label: var.clone(),
                     text_edit: Some(TextEdit {
                         range: utils::range(content, name.node().text_range()),
-                        new_text: var.clone()
+                        new_text: var.clone(),
                     }),
                     ..CompletionItem::default()
                 });
@@ -261,7 +295,7 @@ impl App {
                 if ident.as_str() == rename.old {
                     rename.edits.push(TextEdit {
                         range: utils::range(rename.code, node.text_range()),
-                        new_text: rename.new_name.clone()
+                        new_text: rename.new_name.clone(),
                     });
                 }
             } else if let Some(index) = Select::cast(node.clone()) {
@@ -294,7 +328,7 @@ impl App {
             edits: Vec::new(),
             code,
             old: old.as_str(),
-            new_name: params.new_name
+            new_name: params.new_name,
         };
         let definition = scope.get(old.as_str())?;
         rename_in_node(&mut rename, &definition.set);
@@ -302,6 +336,35 @@ impl App {
         let mut changes = HashMap::new();
         changes.insert(uri, rename.edits);
         Some(changes)
+    }
+    fn document_links(&mut self, params: &DocumentLinkParams) -> Option<Vec<DocumentLink>> {
+        let (current_ast, current_content) = self.files.get(&params.text_document.uri)?;
+        let parent_dir = Path::new(params.text_document.uri.path()).parent();
+        let home_dir = home_dir();
+        let home_dir = home_dir.as_ref();
+        let mut document_links = vec![];
+        for node in current_ast.node().descendants() {
+            let value = Value::cast(node.clone()).and_then(|v| v.to_value().ok());
+            if let Some(RValue::Path(anchor, path)) = value {
+                let file_url = match anchor {
+                    RAnchor::Absolute => Some(PathBuf::from(&path)),
+                    RAnchor::Relative => parent_dir.map(|p| p.join(path)),
+                    RAnchor::Home => home_dir.map(|home| home.join(path)),
+                    RAnchor::Store => None,
+                }
+                .and_then(|path| std::fs::canonicalize(&path).ok())
+                .filter(|path| path.is_file())
+                .and_then(|s| Url::parse(&format!("file://{}", s.to_string_lossy())).ok());
+                if let Some(file_url) = file_url {
+                    document_links.push(DocumentLink {
+                        target: file_url,
+                        range: utils::range(current_content, node.text_range()),
+                        tooltip: None,
+                    })
+                }
+            }
+        }
+        Some(document_links)
     }
     fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();
@@ -322,7 +385,7 @@ impl App {
                 uri,
                 diagnostics,
                 version: None,
-            }
+            },
         ));
         Ok(())
     }
