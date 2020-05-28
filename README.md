@@ -29,6 +29,22 @@ an issue and/or send a PR if a config below didn't work out of the box.
 
 ### Vim/Neovim
 
+#### [coc.nvim](https://github.com/neoclide/coc.nvim)
+
+```vim
+{
+  "languageserver": {
+    "nix": {
+      "command": "rnix-lsp",
+      "filetypes": [
+        "nix"
+      ]
+    }
+  }
+}
+
+```
+
 #### [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim)
 
 ```vim
