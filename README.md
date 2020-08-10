@@ -22,6 +22,12 @@ Turn on logging with `RUST_LOG=trace`, and redirect stderr to a file.
 bash -c "env RUST_LOG=trace rnix-lsp 2> /tmp/rnix-lsp.log"
 ```
 
+## Install
+
+```
+$ nix-env -i -f https://github.com/nix-community/rnix-lsp/archive/master.tar.gz
+```
+
 ## Integrate with your editor
 
 These instructions are not fully tested - see issue #3. Please raise
