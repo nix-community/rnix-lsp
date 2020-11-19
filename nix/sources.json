@@ -1,26 +1,14 @@
 {
-    "NUR": {
-        "branch": "master",
-        "description": "Nix User Repository: User contributed nix packages [maintainer=@Mic92]",
-        "homepage": "",
-        "owner": "nix-community",
-        "repo": "NUR",
-        "rev": "9784dfbac1b390648bcd6732f1b65790fbaa3b11",
-        "sha256": "0r7bx0yvar9n85ls5nbk1463cfn7skljk8hzy6srm4p1va13vw35",
-        "type": "tarball",
-        "url": "https://github.com/nix-community/NUR/archive/9784dfbac1b390648bcd6732f1b65790fbaa3b11.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
-    },
     "naersk": {
         "branch": "master",
         "description": "Build rust crates in Nix. No configuration, no code generation. IFD and sandbox friendly.",
         "homepage": "",
         "owner": "nmattia",
         "repo": "naersk",
-        "rev": "be6d7bfe6132d7b0bf93fa754f35fb6be516b25f",
-        "sha256": "05d0wkzaa3wp2jl4aqmrgwxq7r21vwc5s2q50ljbc42f3hl4jdmz",
+        "rev": "ce273fa593dcc94a629d0d869f07d96d2b337e37",
+        "sha256": "1hx47l7gfim0cs9fn8r91wwl0641wi2fdq67ygb4ydx7msb8sm6h",
         "type": "tarball",
-        "url": "https://github.com/nmattia/naersk/archive/be6d7bfe6132d7b0bf93fa754f35fb6be516b25f.tar.gz",
+        "url": "https://github.com/nmattia/naersk/archive/ce273fa593dcc94a629d0d869f07d96d2b337e37.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
@@ -29,22 +17,23 @@
         "homepage": "https://github.com/nmattia/niv",
         "owner": "nmattia",
         "repo": "niv",
-        "rev": "d20eed4ce6551637b5dadf5e3be173299432ebc9",
-        "sha256": "0g8nnf7pbpmz5d1q35h0naigymj7nr2wmg2gy065j8y1c4h5q3cp",
+        "rev": "ba57d5a29b4e0f2085917010380ef3ddc3cf380f",
+        "sha256": "1kpsvc53x821cmjg1khvp1nz7906gczq8mp83664cr15h94sh8i4",
         "type": "tarball",
-        "url": "https://github.com/nmattia/niv/archive/d20eed4ce6551637b5dadf5e3be173299432ebc9.tar.gz",
+        "url": "https://github.com/nmattia/niv/archive/ba57d5a29b4e0f2085917010380ef3ddc3cf380f.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "nixpkgs": {
-        "branch": "nixos-19.09",
+        "branch": "nixpkgs-unstable",
+        "builtin": true,
         "description": "A read-only mirror of NixOS/nixpkgs tracking the released channels. Send issues and PRs to",
         "homepage": "https://github.com/NixOS/nixpkgs",
         "owner": "NixOS",
         "repo": "nixpkgs-channels",
-        "rev": "9f453eb97ffe261ff93136757cd08b522fac83b7",
-        "sha256": "16wdsazc7g09ibcxlqsa3kblzhbbpdpb6s29llliybw73cp37b9s",
+        "rev": "502845c3e31ef3de0e424f3fcb09217df2ce6df6",
+        "sha256": "0fcqpsy6y7dgn0y0wgpa56gsg0b0p8avlpjrd79fp4mp9bl18nda",
         "type": "tarball",
-        "url": "https://github.com/NixOS/nixpkgs-channels/archive/9f453eb97ffe261ff93136757cd08b522fac83b7.tar.gz",
+        "url": "https://github.com/NixOS/nixpkgs-channels/archive/502845c3e31ef3de0e424f3fcb09217df2ce6df6.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
