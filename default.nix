@@ -1,6 +1,3 @@
-{
-  sources ? import ./nix/sources.nix,
-  pkgs ? import sources.nixpkgs {},
-  naersk ? pkgs.callPackage sources.naersk {},
-}:
-naersk.buildPackage ./.
+(import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
+  src = ./.;
+}).defaultNix.default
