@@ -27,24 +27,24 @@ impl App {
         file: Url,
         root: &SyntaxNode,
         offset: usize,
-    ) -> Option<(Ident, HashMap<String, Option<Var>>)> {
+    ) -> Option<(Ident, HashMap<String, (String, Option<Var>)>)> {
         let mut file = Rc::new(file);
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
         let mut entries = utils::scope_for(&file, ident.node().clone())?.into_iter()
-            .map(|(x, var)| (x.to_owned(), Some(var)))
+            .map(|(x, var)| (x.to_owned(), (var.datatype.clone(), Some(var))))
             .collect::<HashMap<_, _>>();
         for var in info.path {
             if !entries.contains_key(&var) && var == "builtins" {
                 entries = BUILTINS.iter()
-                    .map(|x| (x.to_owned(), None))
+                    .map(|x| (x.to_owned(), (String::from("Lambda"), None)))
                     .collect::<HashMap<_, _>>();
             } else {
                 let node_entry = entries.get(&var)?;
-                if let Some(var) = node_entry {
+                if let (_, Some(var)) = node_entry {
                     let node = var.value.clone()?;
                     entries = self.scope_from_node(&mut file, node)?.into_iter()
-                        .map(|(x, var)| (x.to_owned(), Some(var)))
+                        .map(|(x, var)| (x.to_owned(), (var.datatype.clone(), Some(var))))
                         .collect::<HashMap<_, _>>();
                 }
             }
@@ -98,7 +98,7 @@ impl App {
         }
 
         if let Some(set) = AttrSet::cast(node) {
-            utils::populate(&file, &mut scope, &set);
+            utils::populate(&file, &mut scope, &set, String::from("Attribute"));
         }
         Some(scope)
     }

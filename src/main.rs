@@ -250,7 +250,7 @@ impl App {
         let (name, scope) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
 
         let var_e = scope.get(name.as_str())?;
-        if let Some(var) = var_e {
+        if let (_, Some(var)) = var_e {
             let (_definition_ast, definition_content) = self.files.get(&var.file)?;
             Some(Location {
                 uri: (*var.file).clone(),
@@ -273,7 +273,7 @@ impl App {
         let (_, content) = self.files.get(&params.text_document.uri)?;
 
         let mut completions = Vec::new();
-        for var in scope.keys() {
+        for (var, (datatype, _)) in scope {
             if var.starts_with(&name.as_str()) {
                 completions.push(CompletionItem {
                     label: var.clone(),
@@ -281,6 +281,7 @@ impl App {
                         range: utils::range(content, name.node().text_range()),
                         new_text: var.clone(),
                     }),
+                    detail: Some(datatype),
                     ..CompletionItem::default()
                 });
             }

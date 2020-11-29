@@ -97,11 +97,13 @@ pub struct Var {
     pub set: SyntaxNode,
     pub key: SyntaxNode,
     pub value: Option<SyntaxNode>,
+    pub datatype: String,
 }
 pub fn populate<T: EntryHolder>(
     file: &Rc<Url>,
     scope: &mut HashMap<String, Var>,
     set: &T,
+    datatype: String,
 ) -> Option<()> {
     for entry in set.entries() {
         let attr = entry.key()?;
@@ -115,6 +117,7 @@ pub fn populate<T: EntryHolder>(
                         set: set.node().to_owned(),
                         key: ident.node().to_owned(),
                         value: Some(entry.value()?.to_owned()),
+                        datatype: datatype.to_owned(),
                     },
                 );
             }
@@ -129,14 +132,14 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
     while let Some(node) = current {
         match ParsedType::try_from(node.clone()) {
             Ok(ParsedType::LetIn(let_in)) => {
-                populate(&file, &mut scope, &let_in);
+                populate(&file, &mut scope, &let_in, String::from("Variable"));
             }
             Ok(ParsedType::LegacyLet(let_)) => {
-                populate(&file, &mut scope, &let_);
+                populate(&file, &mut scope, &let_, String::from("Variable"));
             }
             Ok(ParsedType::AttrSet(set)) => {
                 if set.recursive() {
-                    populate(&file, &mut scope, &set);
+                    populate(&file, &mut scope, &set, String::from("Attribute"));
                 }
             }
             Ok(ParsedType::Lambda(lambda)) => match ParsedType::try_from(lambda.arg()?) {
@@ -149,6 +152,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                                 set: lambda.node().clone(),
                                 key: ident.node().clone(),
                                 value: None,
+                                datatype: String::from("Lambda"),
                             },
                         );
                     }
@@ -164,6 +168,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                                     set: lambda.node().to_owned(),
                                     key: ident.node().to_owned(),
                                     value: None,
+                                    datatype: String::from("Attribute"),
                                 },
                             );
                         }
