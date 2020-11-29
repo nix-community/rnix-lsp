@@ -249,12 +249,16 @@ impl App {
         let node = current_ast.node();
         let (name, scope) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
 
-        let var = scope.get(name.as_str())?;
-        let (_definition_ast, definition_content) = self.files.get(&var.file)?;
-        Some(Location {
-            uri: (*var.file).clone(),
-            range: utils::range(definition_content, var.key.text_range()),
-        })
+        let var_e = scope.get(name.as_str())?;
+        if let Some(var) = var_e {
+            let (_definition_ast, definition_content) = self.files.get(&var.file)?;
+            Some(Location {
+                uri: (*var.file).clone(),
+                range: utils::range(definition_content, var.key.text_range()),
+            })
+        } else {
+            None
+        }
     }
     #[allow(clippy::shadow_unrelated)] // false positive
     fn completions(&mut self, params: &TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {

@@ -10,20 +10,44 @@ use std::{
     rc::Rc,
 };
 
+use lazy_static::lazy_static;
+
+// FIXME use Nix bindings to dynamically extract existing builtins.
+// e.g. use API behind `nix __dump-builtins`.
+lazy_static! {
+    static ref BUILTINS: Vec<String> = vec![
+        "map" , "filter", "fromTOML", "fromJSON", "toJSON", "match", "concatStringsSep",
+        "concatLists", "fetchGit", "fetchTarball", "fetchurl", "findFile", "abort", "add"
+    ].into_iter().map(String::from).collect::<Vec<_>>();
+}
+
 impl App {
     pub fn scope_for_ident(
         &mut self,
         file: Url,
         root: &SyntaxNode,
         offset: usize,
-    ) -> Option<(Ident, HashMap<String, Var>)> {
+    ) -> Option<(Ident, HashMap<String, Option<Var>>)> {
         let mut file = Rc::new(file);
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
-        let mut entries = utils::scope_for(&file, ident.node().clone())?;
+        let mut entries = utils::scope_for(&file, ident.node().clone())?.into_iter()
+            .map(|(x, var)| (x.to_owned(), Some(var)))
+            .collect::<HashMap<_, _>>();
         for var in info.path {
-            let node = entries.get(&var)?.value.clone()?;
-            entries = self.scope_from_node(&mut file, node)?;
+            if !entries.contains_key(&var) && var == "builtins" {
+                entries = BUILTINS.iter()
+                    .map(|x| (x.to_owned(), None))
+                    .collect::<HashMap<_, _>>();
+            } else {
+                let node_entry = entries.get(&var)?;
+                if let Some(var) = node_entry {
+                    let node = var.value.clone()?;
+                    entries = self.scope_from_node(&mut file, node)?.into_iter()
+                        .map(|(x, var)| (x.to_owned(), Some(var)))
+                        .collect::<HashMap<_, _>>();
+                }
+            }
         }
         Some((Ident::cast(ident.node().clone()).unwrap(), entries))
     }
