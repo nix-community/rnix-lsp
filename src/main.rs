@@ -281,7 +281,7 @@ impl App {
                         range: utils::range(content, name.node().text_range()),
                         new_text: var.clone(),
                     }),
-                    detail: Some(datatype),
+                    detail: Some(format!("{}", datatype)),
                     ..CompletionItem::default()
                 });
             }

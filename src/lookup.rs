@@ -1,5 +1,5 @@
 use crate::{
-    utils::{self, Var},
+    utils::{self, Var, Datatype},
     App,
 };
 use lsp_types::Url;
@@ -35,7 +35,7 @@ impl App {
         file: Url,
         root: &SyntaxNode,
         offset: usize,
-    ) -> Option<(Ident, HashMap<String, (String, Option<Var>)>)> {
+    ) -> Option<(Ident, HashMap<String, (Datatype, Option<Var>)>)> {
         let mut file = Rc::new(file);
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
@@ -45,7 +45,7 @@ impl App {
         for var in info.path {
             if !entries.contains_key(&var) && var == "builtins" {
                 entries = BUILTINS.iter()
-                    .map(|x| (x.to_owned(), (String::from("Lambda"), None)))
+                    .map(|x| (x.to_owned(), (Datatype::Lambda, None)))
                     .collect::<HashMap<_, _>>();
             } else {
                 let node_entry = entries.get(&var)?;
@@ -106,7 +106,7 @@ impl App {
         }
 
         if let Some(set) = AttrSet::cast(node) {
-            utils::populate(&file, &mut scope, &set, String::from("Attribute"));
+            utils::populate(&file, &mut scope, &set, Datatype::Attribute);
         }
         Some(scope)
     }
