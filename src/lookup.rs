@@ -16,8 +16,16 @@ use lazy_static::lazy_static;
 // e.g. use API behind `nix __dump-builtins`.
 lazy_static! {
     static ref BUILTINS: Vec<String> = vec![
-        "map" , "filter", "fromTOML", "fromJSON", "toJSON", "match", "concatStringsSep",
-        "concatLists", "fetchGit", "fetchTarball", "fetchurl", "findFile", "abort", "add"
+      // `nix __dump-builtins | jq 'keys'
+      "abort", "add", "all", "any", "attrNames", "attrValues", "baseNameOf", "bitAnd", "bitOr",
+      "bitXor", "catAttrs", "compareVersions", "concatLists", "concatMap", "concatStringsSep", "deepSeq",
+      "dirOf", "div", "elem", "elemAt", "fetchGit", "fetchTarball", "fetchurl", "filter", "filterSource", "foldl'",
+      "fromJSON", "functionArgs", "genList", "getAttr", "getEnv", "hasAttr", "hashFile", "hashString", "head",
+      "import", "intersectAttrs", "isAttrs", "isBool", "isFloat", "isFunction", "isInt", "isList", "isNull",
+      "isPath", "isString", "length", "lessThan", "listToAttrs", "map", "mapAttrs", "match", "mul", "parseDrvName",
+      "partition", "path", "pathExists", "placeholder", "readDir", "readFile", "removeAttrs", "replaceStrings",
+      "seq", "sort", "split", "splitVersion", "storePath", "stringLength", "sub", "substring", "tail", "throw",
+      "toFile", "toJSON", "toPath", "toString", "toXML", "trace", "tryEval", "typeOf"
     ].into_iter().map(String::from).collect::<Vec<_>>();
 }
 
