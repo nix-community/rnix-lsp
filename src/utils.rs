@@ -3,7 +3,7 @@ use rnix::{types::*, SyntaxNode, TextRange, TextUnit, TokenAtOffset};
 use std::{collections::HashMap, convert::TryFrom, path::PathBuf, rc::Rc};
 use std::fmt::{Display, Formatter, Result, Debug};
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum Datatype {
     Lambda, Variable, Attribute
 }
@@ -11,9 +11,9 @@ pub enum Datatype {
 impl Display for Datatype {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}", match self {
-            Datatype::Lambda => "Lambda",
-            Datatype::Variable => "Variable",
-            Datatype::Attribute => "Attribute",
+            Self::Lambda => "Lambda",
+            Self::Variable => "Variable",
+            Self::Attribute => "Attribute",
         })
     }
 }
@@ -139,7 +139,7 @@ pub fn populate<T: EntryHolder>(
                         set: set.node().to_owned(),
                         key: ident.node().to_owned(),
                         value: Some(entry.value()?.to_owned()),
-                        datatype: datatype.clone(),
+                        datatype: datatype,
                     },
                 );
             }

@@ -40,7 +40,7 @@ impl App {
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
         let mut entries = utils::scope_for(&file, ident.node().clone())?.into_iter()
-            .map(|(x, var)| (x.to_owned(), (var.datatype.clone(), Some(var))))
+            .map(|(x, var)| (x.to_owned(), (var.datatype, Some(var))))
             .collect::<HashMap<_, _>>();
         for var in info.path {
             if !entries.contains_key(&var) && var == "builtins" {
@@ -52,7 +52,7 @@ impl App {
                 if let (_, Some(var)) = node_entry {
                     let node = var.value.clone()?;
                     entries = self.scope_from_node(&mut file, node)?.into_iter()
-                        .map(|(x, var)| (x.to_owned(), (var.datatype.clone(), Some(var))))
+                        .map(|(x, var)| (x.to_owned(), (var.datatype, Some(var))))
                         .collect::<HashMap<_, _>>();
                 }
             }
