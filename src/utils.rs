@@ -1,6 +1,28 @@
 use lsp_types::*;
 use rnix::{types::*, SyntaxNode, TextRange, TextUnit, TokenAtOffset};
 use std::{collections::HashMap, convert::TryFrom, path::PathBuf, rc::Rc};
+use std::fmt::{Display, Formatter, Result, Debug};
+
+#[derive(Copy, Clone)]
+pub enum Datatype {
+    Lambda, Variable, Attribute
+}
+
+impl Display for Datatype {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", match self {
+            Self::Lambda => "Lambda",
+            Self::Variable => "Variable",
+            Self::Attribute => "Attribute",
+        })
+    }
+}
+
+impl Debug for Datatype {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        Display::fmt(self, f)
+    }
+}
 
 pub fn uri_path(uri: &Url) -> Option<PathBuf> {
     if uri.scheme() != "file" || uri.has_host() {
@@ -97,11 +119,13 @@ pub struct Var {
     pub set: SyntaxNode,
     pub key: SyntaxNode,
     pub value: Option<SyntaxNode>,
+    pub datatype: Datatype,
 }
 pub fn populate<T: EntryHolder>(
     file: &Rc<Url>,
     scope: &mut HashMap<String, Var>,
     set: &T,
+    datatype: Datatype,
 ) -> Option<()> {
     for entry in set.entries() {
         let attr = entry.key()?;
@@ -115,6 +139,7 @@ pub fn populate<T: EntryHolder>(
                         set: set.node().to_owned(),
                         key: ident.node().to_owned(),
                         value: Some(entry.value()?.to_owned()),
+                        datatype: datatype,
                     },
                 );
             }
@@ -129,14 +154,14 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
     while let Some(node) = current {
         match ParsedType::try_from(node.clone()) {
             Ok(ParsedType::LetIn(let_in)) => {
-                populate(&file, &mut scope, &let_in);
+                populate(&file, &mut scope, &let_in, Datatype::Variable);
             }
             Ok(ParsedType::LegacyLet(let_)) => {
-                populate(&file, &mut scope, &let_);
+                populate(&file, &mut scope, &let_, Datatype::Variable);
             }
             Ok(ParsedType::AttrSet(set)) => {
                 if set.recursive() {
-                    populate(&file, &mut scope, &set);
+                    populate(&file, &mut scope, &set, Datatype::Attribute);
                 }
             }
             Ok(ParsedType::Lambda(lambda)) => match ParsedType::try_from(lambda.arg()?) {
@@ -149,6 +174,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                                 set: lambda.node().clone(),
                                 key: ident.node().clone(),
                                 value: None,
+                                datatype: Datatype::Lambda,
                             },
                         );
                     }
@@ -164,6 +190,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                                     set: lambda.node().to_owned(),
                                     key: ident.node().to_owned(),
                                     value: None,
+                                    datatype: Datatype::Lambda,
                                 },
                             );
                         }
