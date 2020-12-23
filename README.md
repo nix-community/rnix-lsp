@@ -92,3 +92,14 @@ endif
 filetypes = ["nix"]
 command = "rnix-lsp"
 ```
+
+
+### VSCode
+
+#### [vscode-nix-ide](https://github.com/nix-community/vscode-nix-ide/)
+
+```json
+{
+    "nix.enableLanguageServer": true
+}
+```
