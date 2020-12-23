@@ -82,3 +82,13 @@ endif
                   :major-modes '(nix-mode)
                   :server-id 'nix))
 ```
+
+### Kakoune
+
+#### [kak-lsp](https://github.com/kak-lsp/kak-lsp)
+
+```toml
+[language.nix]
+filetypes = ["nix"]
+command = "rnix-lsp"
+```
