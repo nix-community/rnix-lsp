@@ -82,6 +82,10 @@ endif
                   :major-modes '(nix-mode)
                   :server-id 'nix))
 ```
+#### [eglot](https://github.com/joaotavora/eglot)
+```elisp
+(add-to-list 'eglot-server-programs '(nix-mode . ("rnix-lsp")))
+```
 
 ### Kakoune
 
