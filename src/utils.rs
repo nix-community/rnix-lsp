@@ -80,7 +80,28 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
         }
     }?;
     let parent = ident.node().parent();
-    if let Some(attr) = parent.clone().and_then(Key::cast) {
+    if parent.clone().map(|x| x.kind() == rnix::SyntaxKind::NODE_INHERIT).unwrap_or(false) {
+        for n in parent.clone().unwrap().children_with_tokens() {
+            if n.kind() == rnix::SyntaxKind::NODE_INHERIT_FROM {
+                if let Some(node) = n.as_node() {
+                    for tok in node.children() {
+                        // FIXME implement support for `inherit (foo.bar) baz`.
+                        if tok.kind() == rnix::SyntaxKind::NODE_IDENT {
+                            return Some(CursorInfo {
+                                path: vec![tok.text().to_string()],
+                                ident: ident.clone(),
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        Some(CursorInfo {
+            path: Vec::new(),
+            ident: ident.clone(),
+        })
+    }
+    else if let Some(attr) = parent.clone().and_then(Key::cast) {
         let mut path = Vec::new();
         for item in attr.path() {
             if item == *ident.node() {
