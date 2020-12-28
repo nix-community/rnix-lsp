@@ -80,38 +80,33 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
         }
     }?;
     let parent = ident.node().parent();
-    if parent.clone().map(|x| x.kind() == rnix::SyntaxKind::NODE_INHERIT).unwrap_or(false) {
-        for n in parent.clone().unwrap().children_with_tokens() {
-            if n.kind() == rnix::SyntaxKind::NODE_INHERIT_FROM {
-                if let Some(node) = n.as_node() {
-                    for tok in node.children() {
-                        if tok.kind() == rnix::SyntaxKind::NODE_IDENT {
-                            return Some(CursorInfo {
-                                path: vec![tok.text().to_string()],
-                                ident: ident.clone(),
-                            })
-                        } else if tok.kind() == rnix::SyntaxKind::NODE_SELECT {
-                            let mut result = Vec::new();
-                            let mut attr = Select::cast(tok.clone())?;
-                            result.push(attr.index()?.to_string().into());
-                            while let Some(new) = Select::cast(attr.set()?) {
-                                result.push(Ident::cast(new.index()?)?.as_str().into());
-                                attr = new;
-                            }
-                            result.push(Ident::cast(attr.set()?)?.as_str().into());
-                            result.reverse();
-                            return Some(CursorInfo {
-                                path: result,
-                                ident: ident.clone(),
-                            })
-                        }
+    if let Some(node) = parent.clone().and_then(Inherit::cast) {
+        if let Some(node) = node.from() {
+            if let Some(tok) = node.inner() {
+                if let Some(_) = Ident::cast(tok.clone()) {
+                    return Some(CursorInfo {
+                        path: vec![tok.text().to_string()],
+                        ident: ident.clone(),
+                    })
+                } else if let Some(mut attr) = Select::cast(tok.clone()) {
+                    let mut result = Vec::new();
+                    result.push(attr.index()?.to_string().into());
+                    while let Some(new) = Select::cast(attr.set()?) {
+                        result.push(Ident::cast(new.index()?)?.as_str().into());
+                        attr = new;
                     }
+                    result.push(Ident::cast(attr.set()?)?.as_str().into());
+                    result.reverse();
+                    return Some(CursorInfo {
+                        path: result,
+                        ident: ident.clone(),
+                    })
                 }
             }
         }
         Some(CursorInfo {
             path: Vec::new(),
-            ident: ident.clone(),
+            ident,
         })
     }
     else if let Some(attr) = parent.clone().and_then(Key::cast) {
