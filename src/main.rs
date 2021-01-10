@@ -247,7 +247,7 @@ impl App {
         let (current_ast, current_content) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(current_content, params.position)?;
         let node = current_ast.node();
-        let (name, scope) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
+        let (name, scope, _) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
 
         let var_e = scope.get(name.as_str())?;
         if let (_, Some(var)) = var_e {
@@ -266,7 +266,7 @@ impl App {
         let offset = utils::lookup_pos(content, params.position)?;
 
         let node = ast.node();
-        let (name, scope) =
+        let (node, scope, name) =
             self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
 
         // Re-open, because scope_for_ident may mutably borrow
@@ -278,7 +278,7 @@ impl App {
                 completions.push(CompletionItem {
                     label: var.clone(),
                     text_edit: Some(TextEdit {
-                        range: utils::range(content, name.node().text_range()),
+                        range: utils::range(content, node.node().text_range()),
                         new_text: var.clone(),
                     }),
                     detail: Some(datatype.to_string()),
