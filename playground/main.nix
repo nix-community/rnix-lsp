@@ -5,14 +5,14 @@ let
     shared_prefix_for_second_item = 2;
     shared_prefix_for_third_item = 3;
     nested_completions = {
-        also_shared_prefix_for_first_item = 4;
-        also_shared_prefix_for_second_item = 5;
-        also_shared_prefix_for_third_item = 6;
+      also_shared_prefix_for_first_item = 4;
+      also_shared_prefix_for_second_item = 5;
+      also_shared_prefix_for_third_item = 6;
     };
     nested_completions_alternative = {
-        another_shared_prefix_for_first_item = 7;
-        another_shared_prefix_for_second_item = 8;
-        another_shared_prefix_for_third_item = 9;
+      another_shared_prefix_for_first_item = 7;
+      another_shared_prefix_for_second_item = 8;
+      another_shared_prefix_for_third_item = 9;
     };
   };
   imported_set = import ./imported-set.nix;
@@ -24,8 +24,8 @@ let
     this_is_an_interpolation = "${rename_me}";
     this_is_a_value = rename_me;
     used_in_nested_set = {
-        this_is_also_an_interpolation = "${rename_me}";
-        this_is_also_a_value = rename_me;
+      this_is_also_an_interpolation = "${rename_me}";
+      this_is_also_a_value = rename_me;
     };
 
     # Ignoring shadowed variables is currently broken

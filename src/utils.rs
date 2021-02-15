@@ -1,20 +1,31 @@
 use lsp_types::*;
 use rnix::{types::*, SyntaxNode, TextRange, TextSize, TokenAtOffset};
-use std::{collections::HashMap, convert::TryFrom, path::PathBuf, rc::Rc};
-use std::fmt::{Display, Formatter, Result, Debug};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    fmt::{Debug, Display, Formatter, Result},
+    path::PathBuf,
+    rc::Rc,
+};
 
 #[derive(Copy, Clone)]
 pub enum Datatype {
-    Lambda, Variable, Attribute
+    Lambda,
+    Variable,
+    Attribute,
 }
 
 impl Display for Datatype {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{}", match self {
-            Self::Lambda => "Lambda",
-            Self::Variable => "Variable",
-            Self::Attribute => "Attribute",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Lambda => "Lambda",
+                Self::Variable => "Variable",
+                Self::Attribute => "Attribute",
+            }
+        )
     }
 }
 
@@ -90,28 +101,29 @@ impl CursorInfo {
 
 pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
     let mut add = false;
-    let ident = match root.token_at_offset(TextSize::try_from(offset).expect("aaah big number scary")) {
-        TokenAtOffset::None => None,
-        TokenAtOffset::Single(node) => Ident::cast(node.parent()),
-        TokenAtOffset::Between(left, right) => {
-            let result = Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()));
-            match result {
-                Some(_) => result,
-                None => {
-                    if let Some(sel) = Select::cast(left.parent()) {
-                        add = true;
-                        if let Some(s) = sel.set().and_then(Select::cast) {
-                            Ident::cast(s.index()?)
+    let ident =
+        match root.token_at_offset(TextSize::try_from(offset).expect("aaah big number scary")) {
+            TokenAtOffset::None => None,
+            TokenAtOffset::Single(node) => Ident::cast(node.parent()),
+            TokenAtOffset::Between(left, right) => {
+                let result = Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()));
+                match result {
+                    Some(_) => result,
+                    None => {
+                        if let Some(sel) = Select::cast(left.parent()) {
+                            add = true;
+                            if let Some(s) = sel.set().and_then(Select::cast) {
+                                Ident::cast(s.index()?)
+                            } else {
+                                Ident::cast(sel.set()?)
+                            }
                         } else {
-                            Ident::cast(sel.set()?)
+                            None
                         }
-                    } else {
-                        None
                     }
-                },
+                }
             }
-        }
-    }?;
+        }?;
     let parent = ident.node().parent();
     if let Some(node) = parent.clone().and_then(Inherit::cast) {
         if let Some(node) = node.from() {
@@ -121,7 +133,7 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
                         vec![tok.text().to_string()],
                         ident.clone(),
                         None,
-                    ))
+                    ));
                 } else if let Some(mut attr) = Select::cast(tok.clone()) {
                     let mut result = Vec::new();
                     result.push(attr.index()?.to_string().into());
@@ -131,21 +143,12 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
                     }
                     result.push(Ident::cast(attr.set()?)?.as_str().into());
                     result.reverse();
-                    return Some(CursorInfo::new(
-                        result,
-                        ident.clone(),
-                        None,
-                    ))
+                    return Some(CursorInfo::new(result, ident.clone(), None));
                 }
             }
         }
-        Some(CursorInfo::new(
-            Vec::new(),
-            ident,
-            None
-        ))
-    }
-    else if let Some(attr) = parent.clone().and_then(Key::cast) {
+        Some(CursorInfo::new(Vec::new(), ident, None))
+    } else if let Some(attr) = parent.clone().and_then(Key::cast) {
         let mut path = Vec::new();
         for item in attr.path() {
             if item == *ident.node() {
@@ -172,16 +175,16 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
         if add {
             path.push(String::from(ident.as_str()));
         }
-        Some(CursorInfo::new(path, ident, match add {
-            true => Some(String::from("")),
-            false => None,
-        }))
-    } else {
         Some(CursorInfo::new(
-            Vec::new(),
+            path,
             ident,
-            None
+            match add {
+                true => Some(String::from("")),
+                false => None,
+            },
         ))
+    } else {
+        Some(CursorInfo::new(Vec::new(), ident, None))
     }
 }
 

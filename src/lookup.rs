@@ -1,5 +1,5 @@
 use crate::{
-    utils::{self, Var, Datatype},
+    utils::{self, Datatype, Var},
     App,
 };
 use lsp_types::Url;
@@ -39,25 +39,33 @@ impl App {
         let mut file = Rc::new(file);
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
-        let mut entries = utils::scope_for(&file, ident.node().clone())?.into_iter()
+        let mut entries = utils::scope_for(&file, ident.node().clone())?
+            .into_iter()
             .map(|(x, var)| (x.to_owned(), (var.datatype, Some(var))))
             .collect::<HashMap<_, _>>();
         for var in info.path {
             if !entries.contains_key(&var) && var == "builtins" {
-                entries = BUILTINS.iter()
+                entries = BUILTINS
+                    .iter()
                     .map(|x| (x.to_owned(), (Datatype::Lambda, None)))
                     .collect::<HashMap<_, _>>();
             } else {
                 let node_entry = entries.get(&var)?;
                 if let (_, Some(var)) = node_entry {
                     let node = var.value.clone()?;
-                    entries = self.scope_from_node(&mut file, node)?.into_iter()
+                    entries = self
+                        .scope_from_node(&mut file, node)?
+                        .into_iter()
                         .map(|(x, var)| (x.to_owned(), (var.datatype, Some(var))))
                         .collect::<HashMap<_, _>>();
                 }
             }
         }
-        Some((Ident::cast(ident.node().clone()).unwrap(), entries, info.name))
+        Some((
+            Ident::cast(ident.node().clone()).unwrap(),
+            entries,
+            info.name,
+        ))
     }
     pub fn scope_from_node(
         &mut self,

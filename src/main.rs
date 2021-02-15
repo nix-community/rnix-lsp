@@ -198,12 +198,10 @@ impl App {
         } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
             let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
                 let fmt = nixpkgs_fmt::reformat_node(&ast.node());
-                vec! [
-                    TextEdit {
-                        range: utils::range(&code, TextRange::up_to(ast.node().text().len())),
-                        new_text: fmt.text().to_string(),
-                    }
-                ]
+                vec![TextEdit {
+                    range: utils::range(&code, TextRange::up_to(ast.node().text().len())),
+                    new_text: fmt.text().to_string(),
+                }]
             } else {
                 Vec::new()
             };
