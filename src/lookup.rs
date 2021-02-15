@@ -35,7 +35,7 @@ impl App {
         file: Url,
         root: &SyntaxNode,
         offset: usize,
-    ) -> Option<(Ident, HashMap<String, (Datatype, Option<Var>)>)> {
+    ) -> Option<(Ident, HashMap<String, (Datatype, Option<Var>)>, String)> {
         let mut file = Rc::new(file);
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
@@ -57,7 +57,7 @@ impl App {
                 }
             }
         }
-        Some((Ident::cast(ident.node().clone()).unwrap(), entries))
+        Some((Ident::cast(ident.node().clone()).unwrap(), entries, info.name))
     }
     pub fn scope_from_node(
         &mut self,

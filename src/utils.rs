@@ -70,13 +70,46 @@ pub fn range(code: &str, range: TextRange) -> Range {
 pub struct CursorInfo {
     pub path: Vec<String>,
     pub ident: Ident,
+    pub name: String,
 }
+
+impl CursorInfo {
+    pub fn new(path: Vec<String>, ident: Ident, name: Option<String>) -> CursorInfo {
+        let myname = match name {
+            Some(n) => n,
+            None => String::from((Ident::cast(ident.node().clone()).unwrap()).as_str()),
+        };
+
+        CursorInfo {
+            path,
+            ident,
+            name: myname,
+        }
+    }
+}
+
 pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
+    let mut add = false;
     let ident = match root.token_at_offset(TextSize::try_from(offset).expect("aaah big number scary")) {
         TokenAtOffset::None => None,
         TokenAtOffset::Single(node) => Ident::cast(node.parent()),
         TokenAtOffset::Between(left, right) => {
-            Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()))
+            let result = Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()));
+            match result {
+                Some(_) => result,
+                None => {
+                    if let Some(sel) = Select::cast(left.parent()) {
+                        add = true;
+                        if let Some(s) = sel.set().and_then(Select::cast) {
+                            Ident::cast(s.index()?)
+                        } else {
+                            Ident::cast(sel.set()?)
+                        }
+                    } else {
+                        None
+                    }
+                },
+            }
         }
     }?;
     let parent = ident.node().parent();
@@ -84,10 +117,11 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
         if let Some(node) = node.from() {
             if let Some(tok) = node.inner() {
                 if let Some(_) = Ident::cast(tok.clone()) {
-                    return Some(CursorInfo {
-                        path: vec![tok.text().to_string()],
-                        ident: ident.clone(),
-                    })
+                    return Some(CursorInfo::new(
+                        vec![tok.text().to_string()],
+                        ident.clone(),
+                        None,
+                    ))
                 } else if let Some(mut attr) = Select::cast(tok.clone()) {
                     let mut result = Vec::new();
                     result.push(attr.index()?.to_string().into());
@@ -97,23 +131,25 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
                     }
                     result.push(Ident::cast(attr.set()?)?.as_str().into());
                     result.reverse();
-                    return Some(CursorInfo {
-                        path: result,
-                        ident: ident.clone(),
-                    })
+                    return Some(CursorInfo::new(
+                        result,
+                        ident.clone(),
+                        None,
+                    ))
                 }
             }
         }
-        Some(CursorInfo {
-            path: Vec::new(),
+        Some(CursorInfo::new(
+            Vec::new(),
             ident,
-        })
+            None
+        ))
     }
     else if let Some(attr) = parent.clone().and_then(Key::cast) {
         let mut path = Vec::new();
         for item in attr.path() {
             if item == *ident.node() {
-                return Some(CursorInfo { path, ident });
+                return Some(CursorInfo::new(path, ident, None));
             }
 
             path.push(Ident::cast(item)?.as_str().into());
@@ -133,12 +169,19 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
             path.push(Ident::cast(index.set()?)?.as_str().into());
         }
         path.reverse();
-        Some(CursorInfo { path, ident })
+        if add {
+            path.push(String::from(ident.as_str()));
+        }
+        Some(CursorInfo::new(path, ident, match add {
+            true => Some(String::from("")),
+            false => None,
+        }))
     } else {
-        Some(CursorInfo {
-            path: Vec::new(),
+        Some(CursorInfo::new(
+            Vec::new(),
             ident,
-        })
+            None
+        ))
     }
 }
 
