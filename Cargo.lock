@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "rnix-lsp"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "dirs 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
