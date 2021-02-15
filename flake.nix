@@ -11,7 +11,8 @@
       let
         pkgs = nixpkgs.legacyPackages."${system}";
         naersk-lib = naersk.lib."${system}";
-      in rec {
+      in
+      rec {
         packages.rnix-lsp = naersk-lib.buildPackage {
           pname = "rnix-lsp";
           root = ./.;
@@ -19,7 +20,11 @@
         defaultPackage = packages.rnix-lsp;
 
         devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ rustc cargo ];
+          nativeBuildInputs = with pkgs; [
+            rustc
+            cargo
+            gitAndTools.pre-commit
+          ];
         };
 
         apps.rnix-lsp = utils.lib.mkApp {
