@@ -1,5 +1,5 @@
 use lsp_types::*;
-use rnix::{types::*, SyntaxNode, TextRange, TextUnit, TokenAtOffset};
+use rnix::{types::*, SyntaxNode, TextRange, TextSize, TokenAtOffset};
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -74,8 +74,8 @@ pub fn offset_to_pos(code: &str, offset: usize) -> Position {
 }
 pub fn range(code: &str, range: TextRange) -> Range {
     Range {
-        start: offset_to_pos(code, range.start().to_usize()),
-        end: offset_to_pos(code, range.end().to_usize()),
+        start: offset_to_pos(code, usize::from(range.start())),
+        end: offset_to_pos(code, usize::from(range.end())),
     }
 }
 pub struct CursorInfo {
@@ -101,28 +101,29 @@ impl CursorInfo {
 
 pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
     let mut add = false;
-    let ident = match root.token_at_offset(TextUnit::from_usize(offset)) {
-        TokenAtOffset::None => None,
-        TokenAtOffset::Single(node) => Ident::cast(node.parent()),
-        TokenAtOffset::Between(left, right) => {
-            let result = Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()));
-            match result {
-                Some(_) => result,
-                None => {
-                    if let Some(sel) = Select::cast(left.parent()) {
-                        add = true;
-                        if let Some(s) = sel.set().and_then(Select::cast) {
-                            Ident::cast(s.index()?)
+    let ident =
+        match root.token_at_offset(TextSize::try_from(offset).expect("aaah big number scary")) {
+            TokenAtOffset::None => None,
+            TokenAtOffset::Single(node) => Ident::cast(node.parent()),
+            TokenAtOffset::Between(left, right) => {
+                let result = Ident::cast(left.parent()).or_else(|| Ident::cast(right.parent()));
+                match result {
+                    Some(_) => result,
+                    None => {
+                        if let Some(sel) = Select::cast(left.parent()) {
+                            add = true;
+                            if let Some(s) = sel.set().and_then(Select::cast) {
+                                Ident::cast(s.index()?)
+                            } else {
+                                Ident::cast(sel.set()?)
+                            }
                         } else {
-                            Ident::cast(sel.set()?)
+                            None
                         }
-                    } else {
-                        None
                     }
                 }
             }
-        }
-    }?;
+        }?;
     let parent = ident.node().parent();
     if let Some(node) = parent.clone().and_then(Inherit::cast) {
         if let Some(node) = node.from() {
@@ -282,7 +283,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
 pub fn selection_ranges(root: &SyntaxNode, content: &str, pos: Position) -> Option<SelectionRange> {
     let pos = lookup_pos(content, pos)?;
     let node = root
-        .token_at_offset(TextUnit::from_usize(pos))
+        .token_at_offset(TextSize::try_from(pos).expect("big number goes brrr"))
         .left_biased()?;
 
     let mut root = None;
