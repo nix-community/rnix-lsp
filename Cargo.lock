@@ -393,8 +393,9 @@ dependencies = [
 
 [[package]]
 name = "nixpkgs-fmt"
-version = "1.0.0"
-source = "git+https://github.com/jD91mZM2/nixpkgs-fmt?branch=bump-rnix#c4a5030e42a0231be53aa1865c6d5d2efd93b34c"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "043b9dfa559dbbff09e648b1676daa3a8862068546e79a4520fffbd71aafe6b5"
 dependencies = [
  "clap",
  "crossbeam-channel 0.3.9",
@@ -509,14 +510,16 @@ dependencies = [
  "lsp-types",
  "nixpkgs-fmt",
  "rnix",
+ "rowan",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "rowan"
-version = "0.12.5"
-source = "git+https://github.com/rust-analyzer/rowan#109885a86b7a095f637927944003add60d2f7ef3"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1b36e449f3702f3b0c821411db1cbdf30fb451726a9456dce5dabcd44420043"
 dependencies = [
  "countme",
  "hashbrown",
