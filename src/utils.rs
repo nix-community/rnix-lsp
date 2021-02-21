@@ -270,6 +270,20 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                             );
                         }
                     }
+                    if let Some(ident) = pattern.at() {
+                        if !scope.contains_key(ident.as_str()) {
+                            scope.insert(
+                                ident.as_str().into(),
+                                Var {
+                                    file: Rc::clone(&file),
+                                    set: lambda.node().to_owned(),
+                                    key: ident.node().to_owned(),
+                                    value: None,
+                                    datatype: Datatype::Lambda,
+                                },
+                            );
+                        }
+                    }
                 }
                 _ => (),
             },
