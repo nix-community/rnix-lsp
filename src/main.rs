@@ -214,6 +214,14 @@ impl App {
                 }
             }
             self.reply(Response::new_ok(id, selections));
+        } else {
+            let req = req.expect("internal error: req should have been wrapped in Some");
+
+            self.reply(Response::new_err(
+                req.id,
+                ErrorCode::MethodNotFound as i32,
+                format!("Unhandled method {}", req.method),
+            ))
         }
         Ok(())
     }
