@@ -135,11 +135,7 @@ impl App {
                     let id = req.id.clone();
                     match self.conn.handle_shutdown(&req) {
                         Ok(true) => break,
-                        Ok(false) => {
-                            if let Err(err) = self.handle_request(req) {
-                                self.err(id, err);
-                            }
-                        }
+                        Ok(false) => self.handle_request(req),
                         Err(err) => {
                             // This only fails if a shutdown was
                             // requested in the first place, so it
@@ -157,7 +153,7 @@ impl App {
             }
         }
     }
-    fn handle_request(&mut self, req: Request) -> Result<(), Error> {
+    fn handle_request(&mut self, req: Request) {
         fn cast<Kind>(req: &mut Option<Request>) -> Option<(RequestId, Kind::Params)>
         where
             Kind: RequestTrait,
@@ -214,8 +210,15 @@ impl App {
                 }
             }
             self.reply(Response::new_ok(id, selections));
+        } else {
+            let req = req.expect("internal error: req should have been wrapped in Some");
+
+            self.reply(Response::new_err(
+                req.id,
+                ErrorCode::MethodNotFound as i32,
+                format!("Unhandled method {}", req.method),
+            ))
         }
-        Ok(())
     }
     fn handle_notification(&mut self, req: Notification) -> Result<(), Error> {
         match &*req.method {
