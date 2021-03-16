@@ -19,6 +19,7 @@ log = "0.4.8"
 lsp-server = "0.3.1"
 lsp-types = { version = "0.68.1", features = ["proposed"] }
 nixpkgs-fmt = "1.1.0"
+regex = "1"
 rnix = "0.9.0"
 rowan = "0.12.6"
 serde = "1.0.104"
