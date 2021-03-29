@@ -509,7 +509,6 @@ dependencies = [
  "lsp-server",
  "lsp-types",
  "nixpkgs-fmt",
- "regex",
  "rnix",
  "rowan",
  "serde",
