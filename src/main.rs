@@ -39,6 +39,7 @@ use rnix::{
     SyntaxNode, TextRange, TextSize,
 };
 use std::{
+    borrow::Cow,
     collections::HashMap,
     panic,
     path::{Path, PathBuf},
@@ -68,7 +69,7 @@ fn real_main() -> Result<(), Error> {
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
-                change: Some(TextDocumentSyncKind::Full),
+                change: Some(TextDocumentSyncKind::Incremental),
                 ..TextDocumentSyncOptions::default()
             },
         )),
@@ -232,10 +233,73 @@ impl App {
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
                 if let Some(change) = params.content_changes.into_iter().last() {
-                    let parsed = rnix::parse(&change.text);
-                    self.send_diagnostics(params.text_document.uri.clone(), &change.text, &parsed)?;
+                    let uri = params.text_document.uri;
+                    let mut content = Cow::from(&change.text);
+                    if let Some(range) = &change.range {
+                        if self.files.contains_key(&uri) {
+                            let mut original = self.files.get(&uri)
+                                .unwrap().1.lines().collect::<Vec<_>>();
+
+                            let start = range.start;
+                            let end = range.end;
+
+                            let lines = original.iter()
+                                .enumerate()
+                                .filter(|&(i, _)| -> bool {
+                                    (i as u64) >= start.line && (i as u64) <= end.line
+                                })
+                                .map(|(_, c)| c)
+                                .collect::<Vec<_>>();
+
+                            if lines.len() > 0 {
+                                let first = lines.get(0).unwrap();
+                                let last;
+                                if lines.len() == 1 {
+                                    last = first;
+                                } else {
+                                    last = lines.last().unwrap();
+                                }
+                                let mut prefix = String::from(
+                                    first.chars()
+                                        .take(start.character as usize)
+                                        .collect::<String>()
+                                );
+
+                                let suffix = String::from(
+                                    last.chars().rev()
+                                        .take(last.len() - (end.character as usize))
+                                        .collect::<String>()
+                                        .chars().rev().collect::<String>()
+                                );
+
+                                prefix.push_str(&change.text);
+                                prefix.push_str(&suffix);
+
+                                let olen = original.len() as u64;
+                                let endl = if end.line >= olen { original.len() } else {
+                                    (end.line as usize) + 1
+                                };
+                                original.drain((start.line as usize)..endl);
+                                let (mut before, mut after) = utils::split_vec_at(
+                                    original.clone(),
+                                    start.line
+                                );
+
+                                let mut preflines = prefix.lines().collect::<Vec<_>>();
+                                if prefix.ends_with("\n") {
+                                    preflines.append(&mut vec![""]);
+                                }
+                                before.append(&mut preflines);
+                                before.append(&mut after);
+
+                                content = Cow::Owned(before.join("\n"));
+                            }
+                        }
+                    }
+                    let parsed = rnix::parse(&content);
+                    self.send_diagnostics(uri.clone(), &content, &parsed)?;
                     self.files
-                        .insert(params.text_document.uri, (parsed, change.text));
+                        .insert(uri, (parsed, content.to_owned().to_string()));
                 }
             }
             _ => (),

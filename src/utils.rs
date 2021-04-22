@@ -322,3 +322,10 @@ pub fn selection_ranges(root: &SyntaxNode, content: &str, pos: Position) -> Opti
 
     root.map(|b| *b)
 }
+
+pub fn split_vec_at<T>(v: Vec<T>, at: u64) -> (Vec<T>, Vec<T>) where T: Copy {
+    let n1 = v.clone().into_iter().take(at as usize).collect::<Vec<_>>();
+    let n2 = v.clone().into_iter().rev().take(v.len() - (at as usize)).rev().collect::<Vec<_>>();
+
+    (n1, n2)
+}
