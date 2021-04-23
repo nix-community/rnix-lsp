@@ -253,7 +253,7 @@ impl App {
 
                             if lines.len() > 0 {
                                 let first = lines.get(0).unwrap();
-                                let last;
+                                let mut last;
                                 if lines.len() == 1 {
                                     last = first;
                                 } else {
@@ -264,6 +264,10 @@ impl App {
                                         .take(start.character as usize)
                                         .collect::<String>()
                                 );
+
+                                if **last == "" && end.character == 0 && start.line != end.line {
+                                    last = &&"\n";
+                                }
 
                                 let suffix = String::from(
                                     last.chars().rev()
