@@ -237,67 +237,42 @@ impl App {
                     let mut content = Cow::from(&change.text);
                     if let Some(range) = &change.range {
                         if self.files.contains_key(&uri) {
-                            let mut original = self.files.get(&uri)
+                            let original = self.files.get(&uri)
                                 .unwrap().1.lines().collect::<Vec<_>>();
+                            let start_line = range.start.line;
+                            let start_char = range.start.character;
+                            let end_line = range.end.line;
+                            let end_char = range.end.character;
 
-                            let start = range.start;
-                            let end = range.end;
-
-                            let lines = original.iter()
-                                .enumerate()
-                                .filter(|&(i, _)| -> bool {
-                                    (i as u64) >= start.line && (i as u64) <= end.line
-                                })
-                                .map(|(_, c)| c)
-                                .collect::<Vec<_>>();
-
-                            if lines.len() > 0 {
-                                let first = lines.get(0).unwrap();
-                                let mut last;
-                                if lines.len() == 1 {
-                                    last = first;
-                                } else {
-                                    last = lines.last().unwrap();
+                            let mut out = String::from("");
+                            for i in 0..(original.len() as u64) {
+                                if i < start_line || i > end_line {
+                                    out += original.get(i as usize).unwrap();
+                                    out += "\n";
+                                    continue;
                                 }
-                                let mut prefix = String::from(
-                                    first.chars()
-                                        .take(start.character as usize)
-                                        .collect::<String>()
-                                );
-
-                                if **last == "" && end.character == 0 && start.line != end.line {
-                                    last = &&"\n";
+                                if i == start_line {
+                                    out += &original
+                                        .get(i as usize)
+                                        .unwrap()
+                                        .chars()
+                                        .into_iter()
+                                        .take(start_char as usize)
+                                        .collect::<String>();
+                                    out += &change.text;
                                 }
-
-                                let suffix = String::from(
-                                    last.chars().rev()
-                                        .take(last.len() - (end.character as usize))
-                                        .collect::<String>()
-                                        .chars().rev().collect::<String>()
-                                );
-
-                                prefix.push_str(&change.text);
-                                prefix.push_str(&suffix);
-
-                                let olen = original.len() as u64;
-                                let endl = if end.line >= olen { original.len() } else {
-                                    (end.line as usize) + 1
-                                };
-                                original.drain((start.line as usize)..endl);
-                                let (mut before, mut after) = utils::split_vec_at(
-                                    original.clone(),
-                                    start.line
-                                );
-
-                                let mut preflines = prefix.lines().collect::<Vec<_>>();
-                                if prefix.ends_with("\n") {
-                                    preflines.append(&mut vec![""]);
+                                if i == end_line {
+                                    out += &original
+                                        .get(i as usize)
+                                        .unwrap()
+                                        .chars()
+                                        .into_iter()
+                                        .skip(end_char as usize)
+                                        .collect::<String>();
                                 }
-                                before.append(&mut preflines);
-                                before.append(&mut after);
-
-                                content = Cow::Owned(before.join("\n"));
                             }
+
+                            content = Cow::Owned(out);
                         }
                     }
                     let parsed = rnix::parse(&content);
