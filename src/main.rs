@@ -245,10 +245,13 @@ impl App {
                             let end_char = range.end.character;
 
                             let mut out = String::from("");
-                            for i in 0..(original.len() as u64) {
+                            let len = original.len() as u64;
+                            for i in 0..len {
                                 if i < start_line || i > end_line {
                                     out += original.get(i as usize).unwrap();
-                                    out += "\n";
+                                    if i != len - 1 {
+                                        out += "\n";
+                                    }
                                     continue;
                                 }
                                 if i == start_line {
@@ -269,6 +272,10 @@ impl App {
                                         .into_iter()
                                         .skip(end_char as usize)
                                         .collect::<String>();
+
+                                    if i != len - 1 {
+                                        out += "\n";
+                                    }
                                 }
                             }
 
