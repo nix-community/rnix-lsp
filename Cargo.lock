@@ -393,9 +393,9 @@ dependencies = [
 
 [[package]]
 name = "nixpkgs-fmt"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "043b9dfa559dbbff09e648b1676daa3a8862068546e79a4520fffbd71aafe6b5"
+checksum = "2a82272a0eee2fef69a1af311f01ff84edac1f4f1680095b9a86f409cf00bd00"
 dependencies = [
  "clap",
  "crossbeam-channel 0.3.9",
