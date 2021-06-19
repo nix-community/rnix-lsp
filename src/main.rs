@@ -39,6 +39,7 @@ use rnix::{
     SyntaxNode, TextRange, TextSize,
 };
 use std::{
+    borrow::Cow,
     collections::HashMap,
     panic,
     path::{Path, PathBuf},
@@ -68,7 +69,7 @@ fn real_main() -> Result<(), Error> {
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
-                change: Some(TextDocumentSyncKind::Full),
+                change: Some(TextDocumentSyncKind::Incremental),
                 ..TextDocumentSyncOptions::default()
             },
         )),
@@ -232,10 +233,59 @@ impl App {
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
                 if let Some(change) = params.content_changes.into_iter().last() {
-                    let parsed = rnix::parse(&change.text);
-                    self.send_diagnostics(params.text_document.uri.clone(), &change.text, &parsed)?;
+                    let uri = params.text_document.uri;
+                    let mut content = Cow::from(&change.text);
+                    if let Some(range) = &change.range {
+                        if self.files.contains_key(&uri) {
+                            let original = self.files.get(&uri)
+                                .unwrap().1.lines().collect::<Vec<_>>();
+                            let start_line = range.start.line;
+                            let start_char = range.start.character;
+                            let end_line = range.end.line;
+                            let end_char = range.end.character;
+
+                            let mut out = String::from("");
+                            let len = original.len() as u64;
+                            for i in 0..len {
+                                if i < start_line || i > end_line {
+                                    out += original.get(i as usize).unwrap();
+                                    if i != len - 1 {
+                                        out += "\n";
+                                    }
+                                    continue;
+                                }
+                                if i == start_line {
+                                    out += &original
+                                        .get(i as usize)
+                                        .unwrap()
+                                        .chars()
+                                        .into_iter()
+                                        .take(start_char as usize)
+                                        .collect::<String>();
+                                    out += &change.text;
+                                }
+                                if i == end_line {
+                                    out += &original
+                                        .get(i as usize)
+                                        .unwrap()
+                                        .chars()
+                                        .into_iter()
+                                        .skip(end_char as usize)
+                                        .collect::<String>();
+
+                                    if i != len - 1 {
+                                        out += "\n";
+                                    }
+                                }
+                            }
+
+                            content = Cow::Owned(out);
+                        }
+                    }
+                    let parsed = rnix::parse(&content);
+                    self.send_diagnostics(uri.clone(), &content, &parsed)?;
                     self.files
-                        .insert(params.text_document.uri, (parsed, change.text));
+                        .insert(uri, (parsed, content.to_owned().to_string()));
                 }
             }
             _ => (),
