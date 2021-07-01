@@ -232,13 +232,13 @@ impl App {
             }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
-                if let Some(change) = params.content_changes.into_iter().last() {
-                    let uri = params.text_document.uri;
-                    let mut content = Cow::from(&change.text);
+                let mut content = Cow::from("");
+                for change in params.content_changes.into_iter() {
+                    let uri = params.text_document.uri.clone();
                     if let Some(range) = &change.range {
                         if self.files.contains_key(&uri) {
-                            let original = self.files.get(&uri)
-                                .unwrap().1.lines().collect::<Vec<_>>();
+                            let original =
+                                self.files.get(&uri).unwrap().1.lines().collect::<Vec<_>>();
                             let start_line = range.start.line;
                             let start_char = range.start.character;
                             let end_line = range.end.line;
@@ -277,6 +277,13 @@ impl App {
                                         out += "\n";
                                     }
                                 }
+                            }
+
+                            if len == 0 {
+                                out = change.text.clone();
+                            } else if start_line >= len {
+                                out += &"\n".repeat(1 + (start_line - len) as usize);
+                                out += &change.text;
                             }
 
                             content = Cow::Owned(out);
