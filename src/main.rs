@@ -39,7 +39,7 @@ use rnix::{
     SyntaxNode, TextRange, TextSize,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     panic,
     path::{Path, PathBuf},
     process,
@@ -397,7 +397,8 @@ impl App {
         let parent_dir = Path::new(params.text_document.uri.path()).parent();
         let home_dir = home_dir();
         let home_dir = home_dir.as_ref();
-        let mut document_links = vec![];
+
+        let mut links = VecDeque::new();
         for node in current_ast.node().descendants() {
             let value = Value::cast(node.clone()).and_then(|v| v.to_value().ok());
             if let Some(RValue::Path(anchor, path)) = value {
@@ -407,19 +408,63 @@ impl App {
                     RAnchor::Home => home_dir.map(|home| home.join(path)),
                     RAnchor::Store => None,
                 }
-                .and_then(|path| std::fs::canonicalize(&path).ok())
+                .map(|path| {
+                    if path.is_dir() {
+                        path.join("default.nix")
+                    } else {
+                        path
+                    }
+                })
                 .filter(|path| path.is_file())
                 .and_then(|s| Url::parse(&format!("file://{}", s.to_string_lossy())).ok());
+
                 if let Some(file_url) = file_url {
-                    document_links.push(DocumentLink {
-                        target: file_url,
-                        range: utils::range(current_content, node.text_range()),
-                        tooltip: None,
-                    })
+                    links.push_back((node.text_range(), file_url))
                 }
             }
         }
-        Some(document_links)
+
+        let mut lsp_links = vec![];
+
+        let mut cur_line_start = 0;
+        let mut next_link_pos = usize::from(links.front()?.0.start());
+        'pos_search: for (line_num, (cur_line_end, _)) in
+            current_content.match_indices('\n').enumerate()
+        {
+            while next_link_pos >= cur_line_start && next_link_pos < cur_line_end {
+                // We already checked if the list is empty
+                let (range, url) = links.pop_front().unwrap();
+
+                // Nix doesn't have multi-line links
+                let start_pos = Position {
+                    line: line_num as u64,
+                    character: (next_link_pos - cur_line_start) as u64,
+                };
+                let end_pos = Position {
+                    line: line_num as u64,
+                    character: (usize::from(range.end()) - cur_line_start) as u64,
+                };
+                let lsp_range = Range {
+                    start: start_pos,
+                    end: end_pos,
+                };
+
+                lsp_links.push(DocumentLink {
+                    target: url,
+                    range: lsp_range,
+                        tooltip: None,
+                });
+
+                if let Some((range, _)) = links.front() {
+                    next_link_pos = usize::from(range.start());
+                } else {
+                    break 'pos_search;
+                }
+            }
+            cur_line_start = cur_line_end + 1;
+        }
+
+        Some(lsp_links)
     }
     fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();
