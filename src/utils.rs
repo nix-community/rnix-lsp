@@ -349,6 +349,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_offset_too_large() {
+        let expr = "let a = 1;in\na";
+        range(expr, TextRange::new(TextSize::from(50), TextSize::from(50)));
+    }
+
+    #[test]
     fn test_lookup_pos_in_expr() {
         let expr = "let a = 1;\nbuiltins.trace a 23";
         let pos = lookup_pos(expr, Position {
