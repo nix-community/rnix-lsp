@@ -322,3 +322,56 @@ pub fn selection_ranges(root: &SyntaxNode, content: &str, pos: Position) -> Opti
 
     root.map(|b| *b)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_offset_from_nix_expr() {
+        let expr = "let a = 1; in\nmap (x: a + x)\n[1 2 3 4]";
+        let start = range(expr, TextRange::new(TextSize::from(0), TextSize::from(1)));
+        assert_eq!(0, start.start.line);
+        assert_eq!(0, start.end.line);
+        assert_eq!(0, start.start.character);
+        assert_eq!(1, start.end.character);
+
+        let actual_pos = range(expr, TextRange::new(
+            TextSize::from(15),
+            TextSize::from(20)
+        ));
+
+        assert_eq!(1, actual_pos.start.line);
+        assert_eq!(1, actual_pos.end.line);
+
+        assert_eq!(1, actual_pos.start.character);
+        assert_eq!(6, actual_pos.end.character);
+    }
+
+    #[test]
+    fn test_lookup_pos_in_expr() {
+        let expr = "let a = 1;\nbuiltins.trace a 23";
+        let pos = lookup_pos(expr, Position {
+            line: 0,
+            character: 0,
+        });
+
+        assert_eq!(0, pos.expect("expected position to be not None!"));
+    }
+
+    #[test]
+    fn test_lookup_pos_out_of_range() {
+        let expr = "let a = 1;\na";
+        let pos_wrong_line = lookup_pos(expr, Position {
+            line: 5,
+            character: 23,
+        });
+
+        assert!(pos_wrong_line.is_none());
+
+        // if the character is greater than the length of a line, the offset of the last
+        // char of the line is returned.
+        let pos_char_out_of_range = lookup_pos(expr, Position { line: 0, character: 100, });
+        assert_eq!(10, pos_char_out_of_range.expect("expected position to be not None!"));
+    }
+}
