@@ -103,71 +103,58 @@ impl Tree {
                     right.as_ref()?.eval()
                 }
             }
+
+            #[allow(clippy::enum_glob_use)]
+            #[allow(clippy::float_cmp)] // We want to match the Nix reference implementation
             TreeSource::BinOp { op, left, right } => {
                 use BinOpKind::*;
                 use NixValue::*;
-                let tmp1 = left.as_ref()?.eval()?;
-                let tmp2 = right.as_ref()?.eval()?;
-                let left = tmp1.borrow();
-                let right = tmp2.borrow();
-                let out = match (op, left, right) {
-                    (Add, Integer(x), Integer(y)) => Integer(x + y),
-                    (Add, Float(x), Float(y)) => Float(x + y),
-                    (Add, Integer(x), Float(y)) => Float(*x as f64 + y),
-                    (Add, Float(x), Integer(y)) => Float(x + *y as f64),
 
-                    (Sub, Integer(x), Integer(y)) => Integer(x - y),
-                    (Sub, Float(x), Float(y)) => Float(x - y),
-                    (Sub, Integer(x), Float(y)) => Float(*x as f64 - y),
-                    (Sub, Float(x), Integer(y)) => Float(x - *y as f64),
+                // Workaround for "temporary value dropped while borrowed"
+                // https://doc.rust-lang.org/error-index.html#E0716
+                let left_tmp = left.as_ref()?.eval()?;
+                let left_val = left_tmp.borrow();
+                let right_tmp = right.as_ref()?.eval()?;
+                let right_val = right_tmp.borrow();
 
-                    (Mul, Integer(x), Integer(y)) => Integer(x * y),
-                    (Mul, Float(x), Float(y)) => Float(x * y),
-                    (Mul, Integer(x), Float(y)) => Float(*x as f64 * y),
-                    (Mul, Float(x), Integer(y)) => Float(x * *y as f64),
+                // Specially handle integer division by zero
+                if let (Div, Integer(_), Integer(0)) = (op, left_val, right_val) {
+                    return Err(EvalError::Unexpected("division by zero".to_string()));
+                }
 
-                    (Div, Integer(x), Integer(y)) => Integer(
-                        x.checked_div(*y)
-                            .ok_or_else(|| EvalError::Unexpected("division by zero".to_string()))?,
-                    ),
-                    (Div, Float(x), Float(y)) => Float(x / y),
-                    (Div, Integer(x), Float(y)) => Float(*x as f64 / y),
-                    (Div, Float(x), Integer(y)) => Float(x / *y as f64),
+                macro_rules! match_binops {
+                    ( arithmetic [ $( $arith_kind:pat => $arith_oper:tt, )+ ],
+                      comparisons [ $( $comp_kind:pat => $comp_oper:tt, )+ ],
+                      $( $pattern:pat => $expr:expr ),*  ) => {
+                        match (op, left_val, right_val) {
+                            $(
+                                ($arith_kind, Integer(x), Integer(y)) => Integer(x $arith_oper y),
+                                ($arith_kind, Float(x), Float(y)) => Float(x $arith_oper y),
+                                ($arith_kind, Integer(x), Float(y)) => Float((*x as f64) $arith_oper y),
+                                ($arith_kind, Float(x), Integer(y)) => Float(x $arith_oper (*y as f64)),
+                            )*
+                            $(
+                                ($comp_kind, Integer(x), Integer(y)) => Bool(x $comp_oper y),
+                                ($comp_kind, Float(x), Float(y)) => Bool(x $comp_oper y),
+                                ($comp_kind, Integer(x), Float(y)) => Bool((*x as f64) $comp_oper *y),
+                                ($comp_kind, Float(x), Integer(y)) => Bool(*x $comp_oper (*y as f64)),
+                            )*
+                            $(
+                                $pattern => $expr,
+                            )*
+                        }
+                    };
+                }
 
-                    // It seems like the Nix reference implementation compares floats exactly
-                    // https://github.com/NixOS/nix/blob/4a5aa1dbf6/src/libutil/comparator.hh#L26
-                    (Equal, Integer(x), Integer(y)) => Bool(x == y),
-                    (Equal, Float(x), Float(y)) => Bool(x == y),
-                    (Equal, Integer(x), Float(y)) => Bool(*x as f64 == *y),
-                    (Equal, Float(x), Integer(y)) => Bool(*x == *y as f64),
-                    (Equal, Bool(x), Bool(y)) => Bool(x == y),
-
-                    (NotEqual, Integer(x), Integer(y)) => Bool(x != y),
-                    (NotEqual, Float(x), Float(y)) => Bool(x != y),
-                    (NotEqual, Integer(x), Float(y)) => Bool(*x as f64 != *y),
-                    (NotEqual, Float(x), Integer(y)) => Bool(*x != *y as f64),
-                    (NotEqual, Bool(x), Bool(y)) => Bool(x != y),
-
-                    (Less, Integer(x), Integer(y)) => Bool(x < y),
-                    (Less, Float(x), Float(y)) => Bool(x < y),
-                    (Less, Integer(x), Float(y)) => Bool((*x as f64) < *y),
-                    (Less, Float(x), Integer(y)) => Bool(*x < *y as f64),
-
-                    (LessOrEq, Integer(x), Integer(y)) => Bool(x <= y),
-                    (LessOrEq, Float(x), Float(y)) => Bool(x <= y),
-                    (LessOrEq, Integer(x), Float(y)) => Bool(*x as f64 <= *y),
-                    (LessOrEq, Float(x), Integer(y)) => Bool(*x <= *y as f64),
-
-                    (Greater, Integer(x), Integer(y)) => Bool(x > y),
-                    (Greater, Float(x), Float(y)) => Bool(x > y),
-                    (Greater, Integer(x), Float(y)) => Bool(*x as f64 > *y),
-                    (Greater, Float(x), Integer(y)) => Bool(*x > (*y as f64)),
-
-                    (GreaterOrEq, Integer(x), Integer(y)) => Bool(x >= y),
-                    (GreaterOrEq, Float(x), Float(y)) => Bool(x >= y),
-                    (GreaterOrEq, Integer(x), Float(y)) => Bool(*x as f64 >= *y),
-                    (GreaterOrEq, Float(x), Integer(y)) => Bool(*x >= (*y as f64)),
-
+                let out = match_binops! {
+                    arithmetic [
+                        Add => +, Sub => -, Mul => *, Div => /,
+                    ],
+                    comparisons [
+                        Equal => ==, NotEqual => !=,
+                        Greater => >, GreaterOrEq => >=,
+                        Less => <, LessOrEq => <=,
+                    ],
                     _ => {
                         return Err(EvalError::Unexpected(format!(
                             "{:?} {:?} {:?} unsupported",
@@ -175,6 +162,7 @@ impl Tree {
                         )))
                     }
                 };
+
                 Ok(Gc::new(out))
             }
             TreeSource::UnaryInvert { value } => {
