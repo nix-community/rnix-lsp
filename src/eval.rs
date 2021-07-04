@@ -67,15 +67,13 @@ impl std::fmt::Debug for Tree {
 impl Tree {
     /// Lazily evaluate a Tree, caching its value
     pub fn eval(&self) -> Result<Gc<NixValue>, EvalError> {
-        use std::ops::Deref;
-        let value_borrow = self.value.borrow();
-        if let Some(ref value) = value_borrow.deref() {
+        let mut value_borrow = self.value.borrow_mut();
+        if let Some(ref value) = *value_borrow {
             Ok(value.clone())
         } else {
-            drop(value_borrow);
             // We can later build a stack trace by wrapping errors here
             let value = self.eval_uncached()?;
-            *self.value.borrow_mut() = Some(value.clone());
+            *value_borrow = Some(value.clone());
             Ok(value)
         }
     }
