@@ -16,6 +16,7 @@
         packages.rnix-lsp = naersk-lib.buildPackage {
           pname = "rnix-lsp";
           root = ./.;
+          doCheck = true;
         };
         defaultPackage = packages.rnix-lsp;
 
