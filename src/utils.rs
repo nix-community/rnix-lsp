@@ -436,4 +436,35 @@ mod tests {
         assert_eq!(2, scope_entries.keys().len());
         assert!(vec!["a", "body"].into_iter().all(|x| scope_entries.contains_key(x)));
     }
+
+    #[test]
+    fn test_find_ident() {
+        let expr = "let a = { b = 1; }; in a.b";
+        let root = rnix::parse(expr).node();
+        let ident = ident_at(&root, 26);
+        assert!(ident.is_some());
+        let ident_ = ident.unwrap();
+        assert_eq!(vec!["a"], ident_.path);
+        assert_eq!("b", ident_.name);
+    }
+
+    #[test]
+    fn test_inherit_ident() {
+        let expr = "let inherit (a) b; in b";
+        let root = rnix::parse(expr).node();
+        let ident = ident_at(&root, 17);
+        assert!(ident.is_some());
+        let ident_ = ident.unwrap();
+        assert_eq!(vec!["a"], ident_.path);
+    }
+
+    #[test]
+    fn test_ident_attr_path() {
+        let expr = "a.b";
+        let root = rnix::parse(expr).node();
+        let ident = ident_at(&root, 2);
+        assert!(ident.is_some());
+        let ident_ = ident.unwrap();
+        assert_eq!(vec!["a"], ident_.path);
+    }
 }
