@@ -39,7 +39,6 @@ use rnix::{
     SyntaxNode, TextRange, TextSize,
 };
 use std::{
-    borrow::Cow,
     collections::HashMap,
     panic,
     path::{Path, PathBuf},
@@ -221,6 +220,8 @@ impl App {
             ))
         }
     }
+
+    // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_didChange
     fn handle_notification(&mut self, req: Notification) -> Result<(), Error> {
         match &*req.method {
             DidOpenTextDocument::METHOD => {
@@ -231,62 +232,57 @@ impl App {
                 self.files.insert(params.text_document.uri, (parsed, text));
             }
             DidChangeTextDocument::METHOD => {
+                // Per the language server spec (https://git.io/JcrvY), we should apply changes
+                // in order, the same as we would if we received them in separate notifications.
+                // That means that, given TextDocumentContentChangeEvents A and B and original
+                // document S, change A refers to S -> S' and B refers to S' -> S''. So we don't
+                // need to remember original document indicies when applying multiple changes.
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
-                if let Some(change) = params.content_changes.into_iter().last() {
-                    let uri = params.text_document.uri;
-                    let mut content = Cow::from(&change.text);
-                    if let Some(range) = &change.range {
-                        if self.files.contains_key(&uri) {
-                            let original = self.files.get(&uri)
-                                .unwrap().1.lines().collect::<Vec<_>>();
-                            let start_line = range.start.line;
-                            let start_char = range.start.character;
-                            let end_line = range.end.line;
-                            let end_char = range.end.character;
-
-                            let mut out = String::from("");
-                            let len = original.len() as u64;
-                            for i in 0..len {
-                                if i < start_line || i > end_line {
-                                    out += original.get(i as usize).unwrap();
-                                    if i != len - 1 {
-                                        out += "\n";
-                                    }
-                                    continue;
-                                }
-                                if i == start_line {
-                                    out += &original
-                                        .get(i as usize)
-                                        .unwrap()
-                                        .chars()
-                                        .into_iter()
-                                        .take(start_char as usize)
-                                        .collect::<String>();
-                                    out += &change.text;
-                                }
-                                if i == end_line {
-                                    out += &original
-                                        .get(i as usize)
-                                        .unwrap()
-                                        .chars()
-                                        .into_iter()
-                                        .skip(end_char as usize)
-                                        .collect::<String>();
-
-                                    if i != len - 1 {
-                                        out += "\n";
-                                    }
-                                }
-                            }
-
-                            content = Cow::Owned(out);
+                let uri = params.text_document.uri;
+                let mut content = self
+                    .files
+                    .get(&uri)
+                    .map(|f| f.1.clone())
+                    .unwrap_or("".to_string());
+                for change in params.content_changes.into_iter() {
+                    let range = match change.range {
+                        Some(x) => x,
+                        None => {
+                            content = change.text;
+                            continue;
                         }
-                    }
-                    let parsed = rnix::parse(&content);
-                    self.send_diagnostics(uri.clone(), &content, &parsed)?;
-                    self.files
-                        .insert(uri, (parsed, content.to_owned().to_string()));
+                    };
+
+                    let mut newline_iter = content.match_indices('\n');
+
+                    let start_idx = if range.start.line == 0 {
+                        0
+                    } else {
+                        newline_iter.nth(range.start.line as usize - 1).unwrap().0 + 1
+                    } + range.start.character as usize;
+
+                    let num_changed_lines = range.end.line - range.start.line;
+                    let end_idx = if num_changed_lines == 0 {
+                        start_idx + (range.end.character - range.start.character) as usize
+                    } else {
+                        // Note that .nth() is relative, not absolute
+                        newline_iter.nth(num_changed_lines as usize - 1).unwrap().0 + 1
+                            + range.end.character as usize
+                    };
+
+                    // Language server ranges are based on UTF-16 (https://git.io/JcrUi)
+                    let content_utf16 = content.encode_utf16().collect::<Vec<_>>();
+                    let mut new_content = String::from_utf16_lossy(&content_utf16[..start_idx]);
+                    new_content.push_str(&change.text);
+                    let suffix = String::from_utf16_lossy(&content_utf16[end_idx..]);
+                    new_content.push_str(&suffix);
+
+                    content = new_content;
                 }
+                let parsed = rnix::parse(&content);
+                self.send_diagnostics(uri.clone(), &content, &parsed)?;
+                self.files
+                    .insert(uri, (parsed, content.to_owned().to_string()));
             }
             _ => (),
         }
@@ -327,7 +323,9 @@ impl App {
                 let det = data.render_detail();
                 completions.push(CompletionItem {
                     label: var.clone(),
-                    documentation: data.documentation.map(|x| lsp_types::Documentation::String(x)),
+                    documentation: data
+                        .documentation
+                        .map(|x| lsp_types::Documentation::String(x)),
                     deprecated: Some(data.deprecated),
                     text_edit: Some(TextEdit {
                         range: utils::range(content, node.node().text_range()),
