@@ -46,32 +46,37 @@ impl Tree {
                 }
             }
             ParsedType::BinOp(binop) => {
+                use rnix::types::BinOpKind::*;
                 let left = recurse(binop.lhs().ok_or(EvalError::Parsing)?);
                 let right = recurse(binop.rhs().ok_or(EvalError::Parsing)?);
-                use rnix::types::BinOpKind::*;
-                match binop.operator() {
+                macro_rules! binop_source {
+                    ( $op:expr ) => {
+                        TreeSource::BinOp {
+                            op: $op,
+                            left,
+                            right,
+                        }
+                    };
+                }
+                let op = match binop.operator() {
                     And => TreeSource::BoolAnd { left, right },
                     Or => TreeSource::BoolOr { left, right },
                     Implication => TreeSource::Implication { left, right },
-                    _ => {
-                        let op = match binop.operator() {
-                            And | Or | IsSet | Implication => unreachable!(),
-                            Concat => BinOpKind::Concat,
-                            Update => BinOpKind::Update,
-                            Add => BinOpKind::Add,
-                            Sub => BinOpKind::Sub,
-                            Mul => BinOpKind::Mul,
-                            Div => BinOpKind::Div,
-                            Equal => BinOpKind::Equal,
-                            NotEqual => BinOpKind::NotEqual,
-                            Less => BinOpKind::Less,
-                            LessOrEq => BinOpKind::LessOrEq,
-                            More => BinOpKind::Greater,
-                            MoreOrEq => BinOpKind::GreaterOrEq,
-                        };
-                        TreeSource::BinOp { op, left, right }
-                    }
-                }
+                    IsSet => return Err(EvalError::Unimplemented("IsSet".to_string())),
+                    Concat => binop_source!(BinOpKind::Concat),
+                    Update => binop_source!(BinOpKind::Update),
+                    Add => binop_source!(BinOpKind::Add),
+                    Sub => binop_source!(BinOpKind::Sub),
+                    Mul => binop_source!(BinOpKind::Mul),
+                    Div => binop_source!(BinOpKind::Div),
+                    Equal => binop_source!(BinOpKind::Equal),
+                    NotEqual => binop_source!(BinOpKind::NotEqual),
+                    Less => binop_source!(BinOpKind::Less),
+                    LessOrEq => binop_source!(BinOpKind::LessOrEq),
+                    More => binop_source!(BinOpKind::Greater),
+                    MoreOrEq => binop_source!(BinOpKind::GreaterOrEq),
+                };
+                TreeSource::BinOp { op, left, right }
             }
             ParsedType::UnaryOp(unary) => {
                 use rnix::types::UnaryOpKind;
