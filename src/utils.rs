@@ -8,7 +8,7 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Datatype {
     Lambda,
     Variable,
@@ -321,4 +321,150 @@ pub fn selection_ranges(root: &SyntaxNode, content: &str, pos: Position) -> Opti
     }
 
     root.map(|b| *b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_offset_from_nix_expr() {
+        let expr = "let a = 1; in\nmap (x: a + x)\n[1 2 3 4]";
+        let start = range(expr, TextRange::new(TextSize::from(0), TextSize::from(1)));
+        assert_eq!(0, start.start.line);
+        assert_eq!(0, start.end.line);
+        assert_eq!(0, start.start.character);
+        assert_eq!(1, start.end.character);
+
+        let actual_pos = range(expr, TextRange::new(
+            TextSize::from(15),
+            TextSize::from(20)
+        ));
+
+        assert_eq!(1, actual_pos.start.line);
+        assert_eq!(1, actual_pos.end.line);
+
+        assert_eq!(1, actual_pos.start.character);
+        assert_eq!(6, actual_pos.end.character);
+    }
+
+    #[test]
+    fn test_offset_across_multiple_lines() {
+        let expr = "let a = 1; in\nbuiltins.trace a a";
+        let r = range(expr, TextRange::new(TextSize::from(8), TextSize::from(15)));
+        assert_eq!(0, r.start.line);
+        assert_eq!(1, r.end.line);
+        assert_eq!(8, r.start.character);
+        assert_eq!(1, r.end.character);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_offset_too_large() {
+        let expr = "let a = 1;in\na";
+        range(expr, TextRange::new(TextSize::from(50), TextSize::from(50)));
+    }
+
+    #[test]
+    fn test_lookup_pos_in_expr() {
+        let expr = "let a = 1;\nbuiltins.trace a 23";
+        let pos = lookup_pos(expr, Position {
+            line: 0,
+            character: 0,
+        });
+
+        assert_eq!(0, pos.expect("expected position to be not None!"));
+    }
+
+    #[test]
+    fn test_lookup_pos_out_of_range() {
+        let expr = "let a = 1;\na";
+        let pos_wrong_line = lookup_pos(expr, Position {
+            line: 5,
+            character: 23,
+        });
+
+        assert!(pos_wrong_line.is_none());
+
+        // if the character is greater than the length of a line, the offset of the last
+        // char of the line is returned.
+        let pos_char_out_of_range = lookup_pos(expr, Position { line: 0, character: 100, });
+        assert_eq!(10, pos_char_out_of_range.expect("expected position to be not None!"));
+    }
+
+    #[test]
+    fn test_populate_scope() {
+        let expr = "n@{ a, b, c, d }: let a = 1; obj.foo = {}; in a + b";
+        let root = rnix::parse(expr).node();
+        let scope = scope_for(
+            &Rc::new(Url::parse("file:///default.nix").unwrap()),
+            root.children().next().unwrap()
+        );
+
+        assert!(scope.is_some());
+        let scope_entries = scope.unwrap();
+
+        assert_eq!(5, scope_entries.keys().len());
+        assert!(scope_entries.values().into_iter().all(|x| x.datatype == Datatype::Lambda));
+        assert!(vec!["n", "a", "b", "c", "d"].into_iter().all(|x| scope_entries.contains_key(x)));
+
+        let mut iter = root.children().next().unwrap().children();
+        iter.next();
+        let scope_let = scope_for(
+            &Rc::new(Url::parse("file:///default.nix").unwrap()),
+            iter.next().unwrap()
+        );
+
+        assert!(scope_let.is_some());
+        let scope_entries = scope_let.unwrap();
+        assert_eq!(6, scope_entries.keys().len());
+        assert_eq!(Datatype::Variable, scope_entries.get("a").unwrap().datatype);
+    }
+
+    #[test]
+    fn test_populate_scope_legacy_let() {
+        let expr = "let { a = 1; body = a; }";
+        let root = rnix::parse(expr).node();
+        let scope = scope_for(
+            &Rc::new(Url::parse("file:///default.nix").unwrap()),
+            root.children().next().unwrap()
+        );
+
+        assert!(scope.is_some());
+        let scope_entries = scope.unwrap();
+
+        assert_eq!(2, scope_entries.keys().len());
+        assert!(vec!["a", "body"].into_iter().all(|x| scope_entries.contains_key(x)));
+    }
+
+    #[test]
+    fn test_find_ident() {
+        let expr = "let a = { b = 1; }; in a.b";
+        let root = rnix::parse(expr).node();
+        let ident = ident_at(&root, 26);
+        assert!(ident.is_some());
+        let ident_ = ident.unwrap();
+        assert_eq!(vec!["a"], ident_.path);
+        assert_eq!("b", ident_.name);
+    }
+
+    #[test]
+    fn test_inherit_ident() {
+        let expr = "let inherit (a) b; in b";
+        let root = rnix::parse(expr).node();
+        let ident = ident_at(&root, 17);
+        assert!(ident.is_some());
+        let ident_ = ident.unwrap();
+        assert_eq!(vec!["a"], ident_.path);
+    }
+
+    #[test]
+    fn test_ident_attr_path() {
+        let expr = "a.b";
+        let root = rnix::parse(expr).node();
+        let ident = ident_at(&root, 2);
+        assert!(ident.is_some());
+        let ident_ = ident.unwrap();
+        assert_eq!(vec!["a"], ident_.path);
+    }
 }
