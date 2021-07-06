@@ -21,10 +21,18 @@
     clippy::integer_arithmetic,
 )]
 
+mod builtins;
+mod eval;
 mod lookup;
+mod parse;
+mod scope;
+mod tests;
 mod utils;
+mod value;
 
 use dirs::home_dir;
+use eval::Tree;
+use gc::{Finalize, Gc, GcCell, Trace};
 use log::{error, trace, warn};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
@@ -38,6 +46,7 @@ use rnix::{
     value::{Anchor as RAnchor, Value as RValue},
     SyntaxNode, TextRange, TextSize,
 };
+use scope::Scope;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -45,9 +54,41 @@ use std::{
     path::{Path, PathBuf},
     process,
     rc::Rc,
+    str::FromStr,
 };
+use value::NixValue;
 
 type Error = Box<dyn std::error::Error>;
+#[derive(Debug, Clone, Trace, Finalize)]
+pub enum EvalError {
+    Unimplemented(String),
+    Unexpected(String),
+    StackTrace(String),
+    TypeError(String),
+    Parsing,
+    Unknown,
+}
+
+impl std::error::Error for EvalError {}
+
+impl std::fmt::Display for EvalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            EvalError::Unimplemented(msg) => write!(f, "unimplemented: {}", msg),
+            EvalError::Unexpected(msg) => write!(f, "unexpected: {}", msg),
+            EvalError::StackTrace(msg) => write!(f, "{}", msg),
+            EvalError::TypeError(msg) => write!(f, "type error: {}", msg),
+            EvalError::Parsing => write!(f, "parsing error"),
+            EvalError::Unknown => write!(f, "unknown value"),
+        }
+    }
+}
+
+impl From<&EvalError> for EvalError {
+    fn from(x: &EvalError) -> Self {
+        x.clone()
+    }
+}
 
 fn main() {
     if let Err(err) = real_main() {
@@ -82,6 +123,7 @@ fn real_main() -> Result<(), Error> {
             resolve_provider: Some(false),
             work_done_progress_options: WorkDoneProgressOptions::default(),
         }),
+        hover_provider: Some(true),
         rename_provider: Some(RenameProviderCapability::Simple(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
@@ -92,6 +134,7 @@ fn real_main() -> Result<(), Error> {
 
     App {
         files: HashMap::new(),
+        store: Gc::new(GcCell::new(HashMap::new())),
         conn: connection,
     }
     .main();
@@ -102,7 +145,8 @@ fn real_main() -> Result<(), Error> {
 }
 
 struct App {
-    files: HashMap<Url, (AST, String)>,
+    files: HashMap<Url, (AST, String, Result<Tree, EvalError>)>,
+    store: Gc<GcCell<HashMap<String, Gc<NixValue>>>>,
     conn: Connection,
 }
 impl App {
@@ -193,7 +237,7 @@ impl App {
             let document_links = self.document_links(&params).unwrap_or_default();
             self.reply(Response::new_ok(id, document_links));
         } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
-            let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
+            let changes = if let Some((ast, code, _)) = self.files.get(&params.text_document.uri) {
                 let fmt = nixpkgs_fmt::reformat_node(&ast.node());
                 vec![TextEdit {
                     range: utils::range(&code, TextRange::up_to(ast.node().text().len())),
@@ -203,9 +247,24 @@ impl App {
                 Vec::new()
             };
             self.reply(Response::new_ok(id, changes));
+        } else if let Some((id, params)) = cast::<HoverRequest>(&mut req) {
+            if let Some((range, markdown)) = self.handle_hover(params) {
+                self.reply(Response::new_ok(
+                    id,
+                    Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: markdown,
+                        }),
+                        range,
+                    },
+                ));
+            } else {
+                self.reply(Response::new_ok(id, ()));
+            }
         } else if let Some((id, params)) = cast::<SelectionRangeRequest>(&mut req) {
             let mut selections = Vec::new();
-            if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
+            if let Some((ast, code, _)) = self.files.get(&params.text_document.uri) {
                 for pos in params.positions {
                     selections.push(utils::selection_ranges(&ast.node(), code, pos));
                 }
@@ -228,7 +287,13 @@ impl App {
                 let text = params.text_document.text;
                 let parsed = rnix::parse(&text);
                 self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
-                self.files.insert(params.text_document.uri, (parsed, text));
+                if let Ok(path) = PathBuf::from_str(params.text_document.uri.path()) {
+                    let gc_root = Gc::new(Scope::Root(path, Some(self.store.clone())));
+                    let parsed_root = parsed.root().inner().ok_or(EvalError::Parsing);
+                    let evaluated = parsed_root.and_then(|x| Tree::parse_legacy(&x, gc_root));
+                    self.files
+                        .insert(params.text_document.uri, (parsed, text, evaluated));
+                }
             }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
@@ -237,8 +302,8 @@ impl App {
                     let mut content = Cow::from(&change.text);
                     if let Some(range) = &change.range {
                         if self.files.contains_key(&uri) {
-                            let original = self.files.get(&uri)
-                                .unwrap().1.lines().collect::<Vec<_>>();
+                            let original =
+                                self.files.get(&uri).unwrap().1.lines().collect::<Vec<_>>();
                             let start_line = range.start.line;
                             let start_char = range.start.character;
                             let end_line = range.end.line;
@@ -284,8 +349,13 @@ impl App {
                     }
                     let parsed = rnix::parse(&content);
                     self.send_diagnostics(uri.clone(), &content, &parsed)?;
-                    self.files
-                        .insert(uri, (parsed, content.to_owned().to_string()));
+                    if let Ok(path) = PathBuf::from_str(uri.path()) {
+                        let gc_root = Gc::new(Scope::Root(path, Some(self.store.clone())));
+                        let parsed_root = parsed.root().inner().ok_or(EvalError::Parsing);
+                        let evaluated = parsed_root.and_then(|x| Tree::parse_legacy(&x, gc_root));
+                        self.files
+                            .insert(uri, (parsed, content.to_owned().to_string(), evaluated));
+                    }
                 }
             }
             _ => (),
@@ -293,14 +363,14 @@ impl App {
         Ok(())
     }
     fn lookup_definition(&mut self, params: TextDocumentPositionParams) -> Option<Location> {
-        let (current_ast, current_content) = self.files.get(&params.text_document.uri)?;
+        let (current_ast, current_content, _) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(current_content, params.position)?;
         let node = current_ast.node();
         let (name, scope, _) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
 
         let var_e = scope.get(name.as_str())?;
         if let Some(var) = &var_e.var {
-            let (_definition_ast, definition_content) = self.files.get(&var.file)?;
+            let (_definition_ast, definition_content, _) = self.files.get(&var.file)?;
             Some(Location {
                 uri: (*var.file).clone(),
                 range: utils::range(definition_content, var.key.text_range()),
@@ -309,9 +379,26 @@ impl App {
             None
         }
     }
+    fn handle_hover(&self, params: TextDocumentPositionParams) -> Option<(Option<Range>, String)> {
+        let (_, content, tree) = self.files.get(&params.text_document.uri)?;
+        let offset = utils::lookup_pos(content, params.position)?;
+        let tree = match tree {
+            Ok(x) => {
+                let tmp = Gc::new(x.clone());
+                climb_tree(&tmp, offset).clone()
+            }
+            Err(e) => return Some((None, format!("{:?}", e))),
+        };
+        let range = utils::range(content, tree.range?);
+        let val = match tree.eval() {
+            Ok(x) => x.format_markdown(),
+            Err(e) => format!("{}", e),
+        };
+        Some((Some(range), val))
+    }
     #[allow(clippy::shadow_unrelated)] // false positive
     fn completions(&mut self, params: &TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {
-        let (ast, content) = self.files.get(&params.text_document.uri)?;
+        let (ast, content, _) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(content, params.position)?;
 
         let node = ast.node();
@@ -319,7 +406,7 @@ impl App {
             self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
 
         // Re-open, because scope_for_ident may mutably borrow
-        let (_, content) = self.files.get(&params.text_document.uri)?;
+        let (_, content, _) = self.files.get(&params.text_document.uri)?;
 
         let mut completions = Vec::new();
         for (var, data) in scope {
@@ -327,7 +414,9 @@ impl App {
                 let det = data.render_detail();
                 completions.push(CompletionItem {
                     label: var.clone(),
-                    documentation: data.documentation.map(|x| lsp_types::Documentation::String(x)),
+                    documentation: data
+                        .documentation
+                        .map(|x| lsp_types::Documentation::String(x)),
                     deprecated: Some(data.deprecated),
                     text_edit: Some(TextEdit {
                         range: utils::range(content, node.node().text_range()),
@@ -371,7 +460,7 @@ impl App {
         }
 
         let uri = params.text_document_position.text_document.uri;
-        let (ast, code) = self.files.get(&uri)?;
+        let (ast, code, _) = self.files.get(&uri)?;
         let offset = utils::lookup_pos(code, params.text_document_position.position)?;
         let info = utils::ident_at(&ast.node(), offset)?;
         if !info.path.is_empty() {
@@ -395,7 +484,7 @@ impl App {
         Some(changes)
     }
     fn document_links(&mut self, params: &DocumentLinkParams) -> Option<Vec<DocumentLink>> {
-        let (current_ast, current_content) = self.files.get(&params.text_document.uri)?;
+        let (current_ast, current_content, _) = self.files.get(&params.text_document.uri)?;
         let parent_dir = Path::new(params.text_document.uri.path()).parent();
         let home_dir = home_dir();
         let home_dir = home_dir.as_ref();
@@ -456,4 +545,19 @@ impl App {
         ));
         Ok(())
     }
+}
+
+fn climb_tree(here: &Gc<Tree>, offset: usize) -> &Gc<Tree> {
+    for child in here.children().clone() {
+        let range = match child.range {
+            Some(x) => x,
+            None => continue,
+        };
+        let start: usize = range.start().into();
+        let end: usize = range.end().into();
+        if start <= offset && offset <= end {
+            return climb_tree(child, offset);
+        }
+    }
+    here
 }
