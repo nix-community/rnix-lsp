@@ -1,3 +1,4 @@
+use crate::error::{InternalError, ValueError};
 use crate::parse::BinOpKind;
 use crate::scope::*;
 use crate::value::*;
@@ -105,7 +106,8 @@ impl Tree {
             }
 
             #[allow(clippy::enum_glob_use)]
-            #[allow(clippy::float_cmp)] // We want to match the Nix reference implementation
+            #[allow(clippy::float_cmp)]
+            // We want to match the Nix reference implementation
             TreeSource::BinOp { op, left, right } => {
                 use BinOpKind::*;
                 use NixValue::*;
@@ -119,13 +121,13 @@ impl Tree {
 
                 // Specially handle integer division by zero
                 if let (Div, Integer(_), Integer(0)) = (op, left_val, right_val) {
-                    return Err(EvalError::Unexpected("division by zero".to_string()));
+                    return Err(EvalError::Value(ValueError::DivisionByZero));
                 }
 
                 macro_rules! match_binops {
                     ( arithmetic [ $( $arith_kind:pat => $arith_oper:tt, )+ ],
                       comparisons [ $( $comp_kind:pat => $comp_oper:tt, )+ ],
-                      $( $pattern:pat => $expr:expr ),*  ) => {
+                      $( $pattern:pat => $expr:expr ),* ) => {
                         match (op, left_val, right_val) {
                             $(
                                 ($arith_kind, Integer(x), Integer(y)) => Integer(x $arith_oper y),
@@ -156,10 +158,12 @@ impl Tree {
                         Less => <, LessOrEq => <=,
                     ],
                     _ => {
-                        return Err(EvalError::Unexpected(format!(
+                        // We assume that it's our fault if an operation is unsupported.
+                        // Over time, we can rewrite common cases into type errors.
+                        return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                             "{:?} {:?} {:?} unsupported",
                             left, op, right
-                        )))
+                        ))))
                     }
                 };
 
@@ -173,9 +177,9 @@ impl Tree {
                     NixValue::Integer(x) => NixValue::Integer(-x),
                     NixValue::Float(x) => NixValue::Float(-x),
                     _ => {
-                        return Err(EvalError::TypeError(
+                        return Err(EvalError::Value(ValueError::TypeError(
                             "cannot negate a non-number".to_string(),
-                        ))
+                        )))
                     }
                 }))
             }

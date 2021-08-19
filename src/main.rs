@@ -21,6 +21,7 @@
     clippy::integer_arithmetic,
 )]
 
+mod error;
 mod eval;
 mod lookup;
 mod parse;
@@ -28,6 +29,8 @@ mod scope;
 mod tests;
 mod utils;
 mod value;
+
+use error::{EvalError, ERR_PARSING};
 
 use dirs::home_dir;
 use eval::Tree;
@@ -57,34 +60,6 @@ use std::{
 };
 
 type Error = Box<dyn std::error::Error>;
-#[derive(Debug, Clone, Trace, Finalize)]
-pub enum EvalError {
-    Unimplemented(String),
-    Unexpected(String),
-    TypeError(String),
-    Parsing,
-    Unknown,
-}
-
-impl std::error::Error for EvalError {}
-
-impl std::fmt::Display for EvalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            EvalError::Unimplemented(msg) => write!(f, "unimplemented: {}", msg),
-            EvalError::Unexpected(msg) => write!(f, "unexpected: {}", msg),
-            EvalError::TypeError(msg) => write!(f, "type error: {}", msg),
-            EvalError::Parsing => write!(f, "parsing error"),
-            EvalError::Unknown => write!(f, "unknown value"),
-        }
-    }
-}
-
-impl From<&EvalError> for EvalError {
-    fn from(x: &EvalError) -> Self {
-        x.clone()
-    }
-}
 
 fn main() {
     if let Err(err) = real_main() {
@@ -283,7 +258,7 @@ impl App {
                 self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
                 if let Ok(path) = PathBuf::from_str(params.text_document.uri.path()) {
                     let gc_root = Gc::new(Scope::Root(path));
-                    let parsed_root = parsed.root().inner().ok_or(EvalError::Parsing);
+                    let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
                     let evaluated = parsed_root.and_then(|x| Tree::parse(x, gc_root));
                     self.files
                         .insert(params.text_document.uri, (parsed, text, evaluated));
@@ -345,7 +320,7 @@ impl App {
                     self.send_diagnostics(uri.clone(), &content, &parsed)?;
                     if let Ok(path) = PathBuf::from_str(uri.path()) {
                         let gc_root = Gc::new(Scope::Root(path));
-                        let parsed_root = parsed.root().inner().ok_or(EvalError::Parsing);
+                        let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
                         let evaluated = parsed_root.and_then(|x| Tree::parse(x, gc_root));
                         self.files
                             .insert(uri, (parsed, content.to_owned().to_string(), evaluated));
@@ -378,8 +353,12 @@ impl App {
         let offset = utils::lookup_pos(content, params.position)?;
         let child_tree = climb_tree(tree.as_ref().ok()?, offset).clone();
         let range = utils::range(content, child_tree.range?);
-        let val = child_tree.eval().ok()?.format_markdown();
-        Some((Some(range), val))
+        let msg = match child_tree.eval() {
+            Ok(value) => value.format_markdown(),
+            Err(EvalError::Value(ref err)) => format!("{}", err),
+            Err(EvalError::Internal(_)) => return None,
+        };
+        Some((Some(range), msg))
     }
     #[allow(clippy::shadow_unrelated)] // false positive
     fn completions(&mut self, params: &TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {

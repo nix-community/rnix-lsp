@@ -1,4 +1,4 @@
-use crate::EvalError;
+use crate::{EvalError, error::ValueError};
 use gc::{Finalize, Trace};
 use std::fmt::Debug;
 
@@ -10,7 +10,7 @@ pub enum NixValue {
 }
 
 impl NixValue {
-    fn type_name(&self) -> String {
+    pub fn type_name(&self) -> String {
         match self {
             NixValue::Bool(_) => "bool",
             NixValue::Float(_) => "float",
@@ -22,10 +22,10 @@ impl NixValue {
     pub fn as_bool(&self) -> Result<bool, EvalError> {
         match self {
             NixValue::Bool(x) => Ok(*x),
-            _ => Err(EvalError::TypeError(format!(
+            _ => Err(EvalError::Value(ValueError::TypeError(format!(
                 "expected bool, got {}",
                 self.type_name()
-            ))),
+            )))),
         }
     }
 
@@ -33,10 +33,10 @@ impl NixValue {
     pub fn as_int(&self) -> Result<i64, EvalError> {
         match self {
             NixValue::Integer(x) => Ok(*x),
-            _ => Err(EvalError::TypeError(format!(
+            _ => Err(EvalError::Value(ValueError::TypeError(format!(
                 "expected int, got {}",
                 self.type_name()
-            ))),
+            )))),
         }
     }
 
@@ -44,10 +44,10 @@ impl NixValue {
     pub fn as_float(&self) -> Result<f64, EvalError> {
         match self {
             NixValue::Float(x) => Ok(*x),
-            _ => Err(EvalError::TypeError(format!(
+            _ => Err(EvalError::Value(ValueError::TypeError(format!(
                 "expected float, got {}",
                 self.type_name()
-            ))),
+            )))),
         }
     }
 
