@@ -17,6 +17,7 @@
           pname = "rnix-lsp";
           root = ./.;
           doCheck = true;
+          checkInputs = [ pkgs.nixUnstable ];
         };
         defaultPackage = packages.rnix-lsp;
 
