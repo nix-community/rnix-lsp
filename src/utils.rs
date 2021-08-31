@@ -65,10 +65,10 @@ pub fn lookup_pos(code: &str, pos: Position) -> Option<usize> {
 pub fn offset_to_pos(code: &str, offset: usize) -> Position {
     let start_of_line = code[..offset].rfind('\n').map_or(0, |n| n + 1);
     Position {
-        line: code[..start_of_line].chars().filter(|&c| c == '\n').count() as u64,
+        line: code[..start_of_line].chars().filter(|&c| c == '\n').count() as u32,
         character: code[start_of_line..offset]
             .chars()
-            .map(|c| c.len_utf16() as u64)
+            .map(|c| c.len_utf16() as u32)
             .sum(),
     }
 }
