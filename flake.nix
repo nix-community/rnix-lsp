@@ -4,6 +4,7 @@
   inputs = {
     naersk.url = "github:nmattia/naersk";
     utils.url = "github:numtide/flake-utils";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-21.05";
   };
 
   outputs = { self, nixpkgs, utils, naersk }:
