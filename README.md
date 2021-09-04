@@ -91,12 +91,16 @@ endif
 
 #### [kak-lsp](https://github.com/kak-lsp/kak-lsp)
 
+kak-lsp has builtin configuration since version v9.0.0:
+
 ```toml
 [language.nix]
 filetypes = ["nix"]
+roots = ["flake.nix", "shell.nix", ".git"]
 command = "rnix-lsp"
 ```
 
+If you run into an issue regarding "missing roots" see this [issue](https://github.com/kak-lsp/kak-lsp/issues/411).
 
 ### VSCode
 
