@@ -30,6 +30,7 @@ use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestI
 use lsp_types::{
     notification::{Notification as _, *},
     request::{Request as RequestTrait, *},
+    OneOf,
     *,
 };
 use rnix::{
@@ -75,13 +76,13 @@ fn real_main() -> Result<(), Error> {
         completion_provider: Some(CompletionOptions {
             ..CompletionOptions::default()
         }),
-        definition_provider: Some(true),
-        document_formatting_provider: Some(true),
+        definition_provider: Some(OneOf::Left(true)),
+        document_formatting_provider: Some(OneOf::Left(true)),
         document_link_provider: Some(DocumentLinkOptions {
             resolve_provider: Some(false),
             work_done_progress_options: WorkDoneProgressOptions::default(),
         }),
-        rename_provider: Some(RenameProviderCapability::Simple(true)),
+        rename_provider: Some(OneOf::Left(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
     })
@@ -169,7 +170,7 @@ impl App {
         }
         let mut req = Some(req);
         if let Some((id, params)) = cast::<GotoDefinition>(&mut req) {
-            if let Some(pos) = self.lookup_definition(params) {
+            if let Some(pos) = self.lookup_definition(params.text_document_position_params) {
                 self.reply(Response::new_ok(id, pos));
             } else {
                 self.reply(Response::new_ok(id, ()));
@@ -331,10 +332,10 @@ impl App {
                         .documentation
                         .map(|x| lsp_types::Documentation::String(x)),
                     deprecated: Some(data.deprecated),
-                    text_edit: Some(TextEdit {
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         range: utils::range(content, node.node().text_range()),
                         new_text: var.clone(),
-                    }),
+                    })),
                     detail: Some(det),
                     ..CompletionItem::default()
                 });
@@ -441,12 +442,12 @@ impl App {
 
                 // Nix doesn't have multi-line links
                 let start_pos = Position {
-                    line: line_num as u64,
-                    character: (next_link_pos - cur_line_start) as u64,
+                    line: line_num as u32,
+                    character: (next_link_pos - cur_line_start) as u32,
                 };
                 let end_pos = Position {
-                    line: line_num as u64,
-                    character: (usize::from(range.end()) - cur_line_start) as u64,
+                    line: line_num as u32,
+                    character: (usize::from(range.end()) - cur_line_start) as u32,
                 };
                 let lsp_range = Range {
                     start: start_pos,
@@ -454,7 +455,8 @@ impl App {
                 };
 
                 lsp_links.push(DocumentLink {
-                    target: url,
+                    target: Some(url),
+                    data: None,
                     range: lsp_range,
                         tooltip: None,
                 });
