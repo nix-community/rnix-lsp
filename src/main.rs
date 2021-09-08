@@ -253,7 +253,12 @@ impl App {
                         }
                     };
 
-                    let mut newline_iter = content.match_indices('\n');
+                    let content_utf16 = content.encode_utf16().collect::<Vec<_>>();
+                    let ascii_newline = 10;
+                    let mut newline_iter = content_utf16
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, x)| *x == ascii_newline);
 
                     let start_idx = if range.start.line == 0 {
                         0
@@ -271,7 +276,6 @@ impl App {
                     };
 
                     // Language server ranges are based on UTF-16 (https://git.io/JcrUi)
-                    let content_utf16 = content.encode_utf16().collect::<Vec<_>>();
                     let mut new_content = String::from_utf16_lossy(&content_utf16[..start_idx]);
                     new_content.push_str(&change.text);
                     let suffix = String::from_utf16_lossy(&content_utf16[end_idx..]);
