@@ -16,9 +16,11 @@
 )]
 #![allow(
     // filter().map() can sometimes be more readable
-    clippy::filter_map,
+    clippy::manual_filter_map,
     // Most integer arithmetics are within an allocated region, so we know it's safe
     clippy::integer_arithmetic,
+    // required by lsp_types::Postion
+    clippy::cast_possible_truncation,
 )]
 
 mod lookup;
@@ -28,14 +30,21 @@ use dirs::home_dir;
 use log::{error, trace, warn};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
-    notification::{Notification as _, *},
-    request::{Request as RequestTrait, *},
-    OneOf,
-    *,
+    notification::{DidChangeTextDocument, DidOpenTextDocument, Notification as _},
+    request::{
+        Completion, DocumentLinkRequest, Formatting, GotoDefinition, Rename,
+        Request as RequestTrait, SelectionRangeRequest,
+    },
+    CompletionItem, CompletionOptions, CompletionTextEdit, Diagnostic, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidOpenTextDocumentParams, DocumentLink, DocumentLinkOptions,
+    DocumentLinkParams, Location, OneOf, Position, PublishDiagnosticsParams, Range, RenameParams,
+    SelectionRangeProviderCapability, ServerCapabilities, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, TextEdit, Url,
+    WorkDoneProgressOptions, WorkspaceEdit,
 };
 use rnix::{
-    parser::*,
-    types::*,
+    parser::{ParseError, AST},
+    types::{Ident, Key, Select, TokenWrapper, TypedNode, Value},
     value::{Anchor as RAnchor, Value as RValue},
     SyntaxNode, TextRange, TextSize,
 };
@@ -94,7 +103,7 @@ fn real_main() -> Result<(), Error> {
         files: HashMap::new(),
         conn: connection,
     }
-    .main();
+    .main()?;
 
     io_threads.join()?;
 
@@ -128,7 +137,7 @@ impl App {
             err.to_string(),
         ));
     }
-    fn main(&mut self) {
+    fn main(&mut self) -> Result<(), Error> {
         while let Ok(msg) = self.conn.receiver.recv() {
             trace!("Message: {:#?}", msg);
             match msg {
@@ -148,11 +157,12 @@ impl App {
                     }
                 }
                 Message::Notification(notification) => {
-                    let _ = self.handle_notification(notification);
+                    self.handle_notification(notification)?;
                 }
                 Message::Response(_) => (),
             }
         }
+        Ok(())
     }
     fn handle_request(&mut self, req: Request) {
         fn cast<Kind>(req: &mut Option<Request>) -> Option<(RequestId, Kind::Params)>
@@ -196,7 +206,7 @@ impl App {
             let changes = if let Some((ast, code)) = self.files.get(&params.text_document.uri) {
                 let fmt = nixpkgs_fmt::reformat_node(&ast.node());
                 vec![TextEdit {
-                    range: utils::range(&code, TextRange::up_to(ast.node().text().len())),
+                    range: utils::range(code, TextRange::up_to(ast.node().text().len())),
                     new_text: fmt.text().to_string(),
                 }]
             } else {
@@ -218,7 +228,7 @@ impl App {
                 req.id,
                 ErrorCode::MethodNotFound as i32,
                 format!("Unhandled method {}", req.method),
-            ))
+            ));
         }
     }
 
@@ -229,7 +239,7 @@ impl App {
                 let params: DidOpenTextDocumentParams = serde_json::from_value(req.params)?;
                 let text = params.text_document.text;
                 let parsed = rnix::parse(&text);
-                self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
+                self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed);
                 self.files.insert(params.text_document.uri, (parsed, text));
             }
             DidChangeTextDocument::METHOD => {
@@ -243,15 +253,13 @@ impl App {
                 let mut content = self
                     .files
                     .get(&uri)
-                    .map(|f| f.1.clone())
-                    .unwrap_or("".to_string());
-                for change in params.content_changes.into_iter() {
-                    let range = match change.range {
-                        Some(x) => x,
-                        None => {
-                            content = change.text;
-                            continue;
-                        }
+                    .map_or_else(|| "".to_string(), |f| f.1.clone());
+                for change in params.content_changes {
+                    let range = if let Some(x) = change.range {
+                        x
+                    } else {
+                        content = change.text;
+                        continue;
                     };
 
                     let content_utf16 = content.encode_utf16().collect::<Vec<_>>();
@@ -272,7 +280,8 @@ impl App {
                         start_idx + (range.end.character - range.start.character) as usize
                     } else {
                         // Note that .nth() is relative, not absolute
-                        newline_iter.nth(num_changed_lines as usize - 1).unwrap().0 + 1
+                        newline_iter.nth(num_changed_lines as usize - 1).unwrap().0
+                            + 1
                             + range.end.character as usize
                     };
 
@@ -285,9 +294,8 @@ impl App {
                     content = new_content;
                 }
                 let parsed = rnix::parse(&content);
-                self.send_diagnostics(uri.clone(), &content, &parsed)?;
-                self.files
-                    .insert(uri, (parsed, content.to_owned().to_string()));
+                self.send_diagnostics(uri.clone(), &content, &parsed);
+                self.files.insert(uri, (parsed, content));
             }
             _ => (),
         }
@@ -328,9 +336,7 @@ impl App {
                 let det = data.render_detail();
                 completions.push(CompletionItem {
                     label: var.clone(),
-                    documentation: data
-                        .documentation
-                        .map(|x| lsp_types::Documentation::String(x)),
+                    documentation: data.documentation.map(lsp_types::Documentation::String),
                     deprecated: Some(data.deprecated),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         range: utils::range(content, node.node().text_range()),
@@ -424,7 +430,7 @@ impl App {
                 .and_then(|s| Url::parse(&format!("file://{}", s.to_string_lossy())).ok());
 
                 if let Some(file_url) = file_url {
-                    links.push_back((node.text_range(), file_url))
+                    links.push_back((node.text_range(), file_url));
                 }
             }
         }
@@ -458,7 +464,7 @@ impl App {
                     target: Some(url),
                     data: None,
                     range: lsp_range,
-                        tooltip: None,
+                    tooltip: None,
                 });
 
                 if let Some((range, _)) = links.front() {
@@ -472,7 +478,7 @@ impl App {
 
         Some(lsp_links)
     }
-    fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
+    fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) {
         let errors = ast.errors();
         let mut diagnostics = Vec::with_capacity(errors.len());
         for err in errors {
@@ -503,6 +509,5 @@ impl App {
                 version: None,
             },
         ));
-        Ok(())
     }
 }

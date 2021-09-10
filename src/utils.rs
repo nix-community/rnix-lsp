@@ -1,5 +1,10 @@
-use lsp_types::*;
-use rnix::{types::*, SyntaxNode, TextRange, TextSize, TokenAtOffset};
+use lsp_types::{Position, Range, SelectionRange, Url};
+use rnix::{
+    types::{
+        EntryHolder, Ident, Inherit, Key, ParsedType, Select, TokenWrapper, TypedNode, Wrapper,
+    },
+    SyntaxNode, TextRange, TextSize, TokenAtOffset,
+};
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -128,22 +133,17 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
     if let Some(node) = parent.clone().and_then(Inherit::cast) {
         if let Some(node) = node.from() {
             if let Some(tok) = node.inner() {
-                if let Some(_) = Ident::cast(tok.clone()) {
-                    return Some(CursorInfo::new(
-                        vec![tok.text().to_string()],
-                        ident.clone(),
-                        None,
-                    ));
-                } else if let Some(mut attr) = Select::cast(tok.clone()) {
-                    let mut result = Vec::new();
-                    result.push(attr.index()?.to_string().into());
+                if Ident::cast(tok.clone()).is_some() {
+                    return Some(CursorInfo::new(vec![tok.text().to_string()], ident, None));
+                } else if let Some(mut attr) = Select::cast(tok) {
+                    let mut result = vec![attr.index()?.to_string()];
                     while let Some(new) = Select::cast(attr.set()?) {
                         result.push(Ident::cast(new.index()?)?.as_str().into());
                         attr = new;
                     }
                     result.push(Ident::cast(attr.set()?)?.as_str().into());
                     result.reverse();
-                    return Some(CursorInfo::new(result, ident.clone(), None));
+                    return Some(CursorInfo::new(result, ident, None));
                 }
             }
         }
@@ -178,10 +178,7 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
         Some(CursorInfo::new(
             path,
             ident,
-            match add {
-                true => Some(String::from("")),
-                false => None,
-            },
+            if add { Some(String::from("")) } else { None },
         ))
     } else {
         Some(CursorInfo::new(Vec::new(), ident, None))
@@ -211,10 +208,10 @@ pub fn populate<T: EntryHolder>(
                     ident.as_str().into(),
                     Var {
                         file: Rc::clone(file),
-                        set: set.node().to_owned(),
-                        key: ident.node().to_owned(),
-                        value: Some(entry.value()?.to_owned()),
-                        datatype: datatype,
+                        set: set.node().clone(),
+                        key: ident.node().clone(),
+                        value: Some(entry.value()?.clone()),
+                        datatype,
                     },
                 );
             }
@@ -229,14 +226,14 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
     while let Some(node) = current {
         match ParsedType::try_from(node.clone()) {
             Ok(ParsedType::LetIn(let_in)) => {
-                populate(&file, &mut scope, &let_in, Datatype::Variable);
+                populate(file, &mut scope, &let_in, Datatype::Variable);
             }
             Ok(ParsedType::LegacyLet(let_)) => {
-                populate(&file, &mut scope, &let_, Datatype::Variable);
+                populate(file, &mut scope, &let_, Datatype::Variable);
             }
             Ok(ParsedType::AttrSet(set)) => {
                 if set.recursive() {
-                    populate(&file, &mut scope, &set, Datatype::Attribute);
+                    populate(file, &mut scope, &set, Datatype::Attribute);
                 }
             }
             Ok(ParsedType::Lambda(lambda)) => match ParsedType::try_from(lambda.arg()?) {
@@ -245,7 +242,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                         scope.insert(
                             ident.as_str().into(),
                             Var {
-                                file: Rc::clone(&file),
+                                file: Rc::clone(file),
                                 set: lambda.node().clone(),
                                 key: ident.node().clone(),
                                 value: None,
@@ -261,9 +258,9 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                             scope.insert(
                                 ident.as_str().into(),
                                 Var {
-                                    file: Rc::clone(&file),
-                                    set: lambda.node().to_owned(),
-                                    key: ident.node().to_owned(),
+                                    file: Rc::clone(file),
+                                    set: lambda.node().clone(),
+                                    key: ident.node().clone(),
                                     value: None,
                                     datatype: Datatype::Lambda,
                                 },
@@ -275,9 +272,9 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                             scope.insert(
                                 ident.as_str().into(),
                                 Var {
-                                    file: Rc::clone(&file),
-                                    set: lambda.node().to_owned(),
-                                    key: ident.node().to_owned(),
+                                    file: Rc::clone(file),
+                                    set: lambda.node().clone(),
+                                    key: ident.node().clone(),
                                     value: None,
                                     datatype: Datatype::Lambda,
                                 },
@@ -336,10 +333,7 @@ mod tests {
         assert_eq!(0, start.start.character);
         assert_eq!(1, start.end.character);
 
-        let actual_pos = range(expr, TextRange::new(
-            TextSize::from(15),
-            TextSize::from(20)
-        ));
+        let actual_pos = range(expr, TextRange::new(TextSize::from(15), TextSize::from(20)));
 
         assert_eq!(1, actual_pos.start.line);
         assert_eq!(1, actual_pos.end.line);
@@ -368,10 +362,13 @@ mod tests {
     #[test]
     fn test_lookup_pos_in_expr() {
         let expr = "let a = 1;\nbuiltins.trace a 23";
-        let pos = lookup_pos(expr, Position {
-            line: 0,
-            character: 0,
-        });
+        let pos = lookup_pos(
+            expr,
+            Position {
+                line: 0,
+                character: 0,
+            },
+        );
 
         assert_eq!(0, pos.expect("expected position to be not None!"));
     }
@@ -379,17 +376,29 @@ mod tests {
     #[test]
     fn test_lookup_pos_out_of_range() {
         let expr = "let a = 1;\na";
-        let pos_wrong_line = lookup_pos(expr, Position {
-            line: 5,
-            character: 23,
-        });
+        let pos_wrong_line = lookup_pos(
+            expr,
+            Position {
+                line: 5,
+                character: 23,
+            },
+        );
 
         assert!(pos_wrong_line.is_none());
 
         // if the character is greater than the length of a line, the offset of the last
         // char of the line is returned.
-        let pos_char_out_of_range = lookup_pos(expr, Position { line: 0, character: 100, });
-        assert_eq!(10, pos_char_out_of_range.expect("expected position to be not None!"));
+        let pos_char_out_of_range = lookup_pos(
+            expr,
+            Position {
+                line: 0,
+                character: 100,
+            },
+        );
+        assert_eq!(
+            10,
+            pos_char_out_of_range.expect("expected position to be not None!")
+        );
     }
 
     #[test]
@@ -398,21 +407,26 @@ mod tests {
         let root = rnix::parse(expr).node();
         let scope = scope_for(
             &Rc::new(Url::parse("file:///default.nix").unwrap()),
-            root.children().next().unwrap()
+            root.children().next().unwrap(),
         );
 
         assert!(scope.is_some());
         let scope_entries = scope.unwrap();
 
         assert_eq!(5, scope_entries.keys().len());
-        assert!(scope_entries.values().into_iter().all(|x| x.datatype == Datatype::Lambda));
-        assert!(vec!["n", "a", "b", "c", "d"].into_iter().all(|x| scope_entries.contains_key(x)));
+        assert!(scope_entries
+            .values()
+            .into_iter()
+            .all(|x| x.datatype == Datatype::Lambda));
+        assert!(vec!["n", "a", "b", "c", "d"]
+            .into_iter()
+            .all(|x| scope_entries.contains_key(x)));
 
         let mut iter = root.children().next().unwrap().children();
         iter.next();
         let scope_let = scope_for(
             &Rc::new(Url::parse("file:///default.nix").unwrap()),
-            iter.next().unwrap()
+            iter.next().unwrap(),
         );
 
         assert!(scope_let.is_some());
@@ -427,14 +441,16 @@ mod tests {
         let root = rnix::parse(expr).node();
         let scope = scope_for(
             &Rc::new(Url::parse("file:///default.nix").unwrap()),
-            root.children().next().unwrap()
+            root.children().next().unwrap(),
         );
 
         assert!(scope.is_some());
         let scope_entries = scope.unwrap();
 
         assert_eq!(2, scope_entries.keys().len());
-        assert!(vec!["a", "body"].into_iter().all(|x| scope_entries.contains_key(x)));
+        assert!(vec!["a", "body"]
+            .into_iter()
+            .all(|x| scope_entries.contains_key(x)));
     }
 
     #[test]

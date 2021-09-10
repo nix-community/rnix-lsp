@@ -3,7 +3,11 @@ use crate::{
     App,
 };
 use lsp_types::Url;
-use rnix::{types::*, value::Value as ParsedValue, SyntaxNode};
+use rnix::{
+    types::{Apply, AttrSet, Ident, KeyValue, TokenWrapper, TypedNode, Value, Wrapper},
+    value::Value as ParsedValue,
+    SyntaxNode,
+};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fs,
@@ -12,8 +16,8 @@ use std::{
 
 use lazy_static::lazy_static;
 
+use regex::Regex;
 use std::{process, str};
-use regex;
 
 lazy_static! {
     static ref BUILTINS: Vec<String> = vec![
@@ -50,7 +54,11 @@ impl LSPDetails {
         }
     }
 
-    fn builtin_with_doc(deprecated: bool, params: Option<String>, documentation: String) -> LSPDetails {
+    fn builtin_with_doc(
+        deprecated: bool,
+        params: Option<String>,
+        documentation: String,
+    ) -> LSPDetails {
         LSPDetails {
             datatype: Datatype::Lambda,
             var: None,
@@ -85,17 +93,16 @@ impl App {
         root: &SyntaxNode,
         offset: usize,
     ) -> Option<(Ident, HashMap<String, LSPDetails>, String)> {
-
         let mut file = Rc::new(file);
-        let info = utils::ident_at(&root, offset)?;
+        let info = utils::ident_at(root, offset)?;
         let ident = info.ident;
         let mut entries = utils::scope_for(&file, ident.node().clone())?
             .into_iter()
-            .map(|(x, var)| (x.to_owned(), LSPDetails::from_scope(var.datatype, var)))
+            .map(|(x, var)| (x, LSPDetails::from_scope(var.datatype, var)))
             .collect::<HashMap<_, _>>();
         for var in info.path {
             if !entries.contains_key(&var) && var == "builtins" {
-                entries = self.load_builtins();
+                entries = App::load_builtins();
             } else {
                 let node_entry = entries.get(&var)?;
                 if let Some(var) = &node_entry.var {
@@ -103,7 +110,7 @@ impl App {
                     entries = self
                         .scope_from_node(&mut file, node)?
                         .into_iter()
-                        .map(|(x, var)| (x.to_owned(), LSPDetails::from_scope(var.datatype, var)))
+                        .map(|(x, var)| (x, LSPDetails::from_scope(var.datatype, var)))
                         .collect::<HashMap<_, _>>();
                 }
             }
@@ -144,7 +151,7 @@ impl App {
 
             // TODO use anchor
             *file = Rc::new(file.join(&path).ok()?);
-            let path = utils::uri_path(&file)?;
+            let path = utils::uri_path(file)?;
             node = match self.files.entry((**file).clone()) {
                 Entry::Occupied(entry) => {
                     let (ast, _code) = entry.get();
@@ -161,16 +168,18 @@ impl App {
         }
 
         if let Some(set) = AttrSet::cast(node) {
-            utils::populate(&file, &mut scope, &set, Datatype::Attribute);
+            utils::populate(file, &mut scope, &set, Datatype::Attribute);
         }
         Some(scope)
     }
 
-    fn fallback_builtins(&self, list: Vec<String>) -> HashMap<String, LSPDetails> {
-        list.into_iter().map(|x| (x, LSPDetails::builtin_fallback())).collect::<HashMap<_, _>>()
+    fn fallback_builtins(list: Vec<String>) -> HashMap<String, LSPDetails> {
+        list.into_iter()
+            .map(|x| (x, LSPDetails::builtin_fallback()))
+            .collect::<HashMap<_, _>>()
     }
 
-    fn load_builtins(&self) -> HashMap<String, LSPDetails> {
+    fn load_builtins() -> HashMap<String, LSPDetails> {
         let nixver = process::Command::new("nix").args(&["--version"]).output();
 
         // `nix __dump-builtins` is only supported on `nixUnstable` a.k.a. Nix 2.4.
@@ -181,33 +190,53 @@ impl App {
             Ok(out) => {
                 match str::from_utf8(&out.stdout) {
                     Ok(v) => {
-                        let re = regex::Regex::new(r"^nix \(Nix\) (?P<major>\d)\.(?P<minor>\d).*").unwrap();
+                        let re =
+                            Regex::new(r"^nix \(Nix\) (?P<major>\d)\.(?P<minor>\d).*").unwrap();
                         let m = re.captures(v).unwrap();
-                        let major = m.name("major").map_or(1, |m| m.as_str().parse::<u8>().unwrap());
-                        let minor = m.name("minor").map_or(1, |m| m.as_str().parse::<u8>().unwrap());
+                        let major = m
+                            .name("major")
+                            .map_or(1, |m| m.as_str().parse::<u8>().unwrap());
+                        let minor = m
+                            .name("minor")
+                            .map_or(1, |m| m.as_str().parse::<u8>().unwrap());
                         if major == 2 && minor >= 4 || major > 2 {
-                            let builtins_raw = process::Command::new("nix").args(&["__dump-builtins"]).output().unwrap();
-                            let v: serde_json::Value = serde_json::from_str(str::from_utf8(&builtins_raw.stdout).unwrap()).unwrap();
+                            let builtins_raw = process::Command::new("nix")
+                                .args(&["__dump-builtins"])
+                                .output()
+                                .unwrap();
+                            let v: serde_json::Value =
+                                serde_json::from_str(str::from_utf8(&builtins_raw.stdout).unwrap())
+                                    .unwrap();
 
-                            v.as_object().unwrap()
-                                .iter().map(|(x, v)| {
+                            v.as_object()
+                                .unwrap()
+                                .iter()
+                                .map(|(x, v)| {
                                     let doc = String::from(v["doc"].as_str().unwrap());
-                                    (String::from(x), LSPDetails::builtin_with_doc(
-                                        doc.starts_with("**DEPRECATED.**"),
-                                        // FIXME make sure that `lib.flip` is taken into account here
-                                        v["args"].as_array().map(|x| x.iter().map(|y| y.as_str().unwrap()).collect::<Vec<_>>().join(" -> ")),
-                                        doc
-                                    ))
+                                    (
+                                        String::from(x),
+                                        LSPDetails::builtin_with_doc(
+                                            doc.starts_with("**DEPRECATED.**"),
+                                            // FIXME make sure that `lib.flip` is taken into account here
+                                            v["args"].as_array().map(|x| {
+                                                x.iter()
+                                                    .map(|y| y.as_str().unwrap())
+                                                    .collect::<Vec<_>>()
+                                                    .join(" -> ")
+                                            }),
+                                            doc,
+                                        ),
+                                    )
                                 })
                                 .collect::<HashMap<_, _>>()
                         } else {
-                            self.fallback_builtins(BUILTINS.to_vec())
+                            App::fallback_builtins(BUILTINS.to_vec())
                         }
-                    },
-                    Err(_) => self.fallback_builtins(BUILTINS.to_vec()),
+                    }
+                    Err(_) => App::fallback_builtins(BUILTINS.to_vec()),
                 }
-            },
-            Err(_) => self.fallback_builtins(BUILTINS.to_vec()),
+            }
+            Err(_) => App::fallback_builtins(BUILTINS.to_vec()),
         }
     }
 }
@@ -225,11 +254,8 @@ mod tests {
         let suggestions = (App {
             files: HashMap::new(),
             conn: c.0,
-        }).scope_for_ident(
-            Url::parse("file:///default.nix").unwrap(),
-            &root,
-            15
-        );
+        })
+        .scope_for_ident(Url::parse("file:///default.nix").unwrap(), &root, 15);
 
         assert!(suggestions.is_some());
         let val = suggestions.unwrap();
@@ -246,21 +272,15 @@ mod tests {
             files: HashMap::new(),
             conn: Connection::memory().0,
         };
-        let suggestions = app.scope_for_ident(
-            Url::parse("file:///default.nix").unwrap(),
-            &root,
-            37
-        );
+        let suggestions =
+            app.scope_for_ident(Url::parse("file:///default.nix").unwrap(), &root, 37);
 
         assert!(suggestions.is_some());
         let val = suggestions.unwrap();
         assert!(val.1.contains_key("ab"));
 
-        let suggestions_attr_set = app.scope_for_ident(
-            Url::parse("file:///default.nix").unwrap(),
-            &root,
-            41
-        );
+        let suggestions_attr_set =
+            app.scope_for_ident(Url::parse("file:///default.nix").unwrap(), &root, 41);
         assert!(suggestions_attr_set.is_some());
         let val = suggestions_attr_set.unwrap();
         assert!(val.1.contains_key("abc"));
@@ -274,11 +294,8 @@ mod tests {
             conn: Connection::memory().0,
         };
 
-        let suggestions = app.scope_for_ident(
-            Url::parse("file:///default.nix").unwrap(),
-            &root,
-            28
-        );
+        let suggestions =
+            app.scope_for_ident(Url::parse("file:///default.nix").unwrap(), &root, 28);
 
         assert!(suggestions.is_some());
         let val = suggestions.unwrap();
@@ -293,11 +310,7 @@ mod tests {
             conn: Connection::memory().0,
         };
 
-        let suggestions = app.scope_for_ident(
-            Url::parse("file:///default.nix").unwrap(),
-            &root,
-            9
-        );
+        let suggestions = app.scope_for_ident(Url::parse("file:///default.nix").unwrap(), &root, 9);
 
         assert!(suggestions.is_some());
         let val = suggestions.unwrap();
@@ -319,7 +332,7 @@ mod tests {
         let builtin = LSPDetails::builtin_with_doc(
             false,
             Some(String::from("from -> to")),
-            String::from("foo")
+            String::from("foo"),
         );
         assert_eq!(Datatype::Lambda, builtin.datatype);
         assert_eq!("Lambda: from -> to -> Result", builtin.render_detail());
