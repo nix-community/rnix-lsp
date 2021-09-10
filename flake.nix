@@ -4,7 +4,7 @@
   inputs = {
     naersk.url = "github:nmattia/naersk";
     utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-21.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     naersk.inputs.nixpkgs.follows = "nixpkgs";
   };
 
