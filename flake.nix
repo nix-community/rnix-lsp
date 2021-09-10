@@ -24,9 +24,14 @@
         defaultPackage = packages.rnix-lsp;
 
         devShell = pkgs.mkShell {
+          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
+
           nativeBuildInputs = with pkgs; [
             rustc
             cargo
+            clippy
+            rust-analyzer
+            rustfmt
             gitAndTools.pre-commit
           ];
         };
