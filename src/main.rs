@@ -33,8 +33,8 @@ mod value;
 use error::{EvalError, ERR_PARSING};
 
 use dirs::home_dir;
-use eval::Tree;
-use gc::{Finalize, Gc, Trace};
+use eval::Expr;
+use gc::Gc;
 use log::{error, trace, warn};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
@@ -115,7 +115,7 @@ fn real_main() -> Result<(), Error> {
 }
 
 struct App {
-    files: HashMap<Url, (AST, String, Result<Tree, EvalError>)>,
+    files: HashMap<Url, (AST, String, Result<Expr, EvalError>)>,
     conn: Connection,
 }
 impl App {
@@ -259,7 +259,7 @@ impl App {
                 if let Ok(path) = PathBuf::from_str(params.text_document.uri.path()) {
                     let gc_root = Gc::new(Scope::Root(path));
                     let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
-                    let evaluated = parsed_root.and_then(|x| Tree::parse(x, gc_root));
+                    let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
                     self.files
                         .insert(params.text_document.uri, (parsed, text, evaluated));
                 }
@@ -321,7 +321,7 @@ impl App {
                     if let Ok(path) = PathBuf::from_str(uri.path()) {
                         let gc_root = Gc::new(Scope::Root(path));
                         let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
-                        let evaluated = parsed_root.and_then(|x| Tree::parse(x, gc_root));
+                        let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
                         self.files
                             .insert(uri, (parsed, content.to_owned().to_string(), evaluated));
                     }
@@ -349,11 +349,11 @@ impl App {
         }
     }
     fn hover(&self, params: TextDocumentPositionParams) -> Option<(Option<Range>, String)> {
-        let (_, content, tree) = self.files.get(&params.text_document.uri)?;
+        let (_, content, expr) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(content, params.position)?;
-        let child_tree = climb_tree(tree.as_ref().ok()?, offset).clone();
-        let range = utils::range(content, child_tree.range?);
-        let msg = match child_tree.eval() {
+        let child_expr = climb_expr(expr.as_ref().ok()?, offset).clone();
+        let range = utils::range(content, child_expr.range?);
+        let msg = match child_expr.eval() {
             Ok(value) => value.format_markdown(),
             Err(EvalError::Value(ref err)) => format!("{}", err),
             Err(EvalError::Internal(_)) => return None,
@@ -511,7 +511,7 @@ impl App {
     }
 }
 
-fn climb_tree(here: &Tree, offset: usize) -> &Tree {
+fn climb_expr(here: &Expr, offset: usize) -> &Expr {
     for child in here.children().clone() {
         let range = match child.range {
             Some(x) => x,
@@ -520,7 +520,7 @@ fn climb_tree(here: &Tree, offset: usize) -> &Tree {
         let start: usize = range.start().into();
         let end: usize = range.end().into();
         if start <= offset && offset <= end {
-            return climb_tree(child, offset);
+            return climb_expr(child, offset);
         }
     }
     here

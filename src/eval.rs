@@ -7,57 +7,57 @@ use gc::{Finalize, Gc, GcCell, Trace};
 use rnix::TextRange;
 use std::borrow::Borrow;
 
-type TreeResult = Result<Box<Tree>, EvalError>;
+type ExprResult = Result<Box<Expr>, EvalError>;
 
-/// Used to lazily calculate the value of a Tree. This should be
-/// tolerant of parsing and evaluation errors from child Trees.
+/// Used to lazily calculate the value of a Expr. This should be
+/// tolerant of parsing and evaluation errors from child Exprs.
 #[derive(Debug, Clone, Trace, Finalize)]
-pub enum TreeSource {
+pub enum ExprSource {
     Literal {
         value: NixValue,
     },
     Paren {
-        inner: TreeResult,
+        inner: ExprResult,
     },
     BinOp {
         op: BinOpKind,
-        left: TreeResult,
-        right: TreeResult,
+        left: ExprResult,
+        right: ExprResult,
     },
     BoolAnd {
-        left: TreeResult,
-        right: TreeResult,
+        left: ExprResult,
+        right: ExprResult,
     },
     BoolOr {
-        left: TreeResult,
-        right: TreeResult,
+        left: ExprResult,
+        right: ExprResult,
     },
     Implication {
-        left: TreeResult,
-        right: TreeResult,
+        left: ExprResult,
+        right: ExprResult,
     },
     UnaryInvert {
-        value: TreeResult,
+        value: ExprResult,
     },
     UnaryNegate {
-        value: TreeResult,
+        value: ExprResult,
     },
 }
 
 /// Syntax node that has context and can be lazily evaluated.
 #[derive(Clone, Trace, Finalize)]
-pub struct Tree {
+pub struct Expr {
     #[unsafe_ignore_trace]
     pub range: Option<TextRange>,
     pub value: GcCell<Option<Gc<NixValue>>>,
-    pub source: TreeSource,
+    pub source: ExprSource,
     pub scope: Gc<Scope>,
 }
 
-impl std::fmt::Debug for Tree {
+impl std::fmt::Debug for Expr {
     // The scope can be recursive, so we don't want to print it by default
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Tree")
+        f.debug_struct("Expr")
             .field("value", &self.value)
             .field("source", &self.source)
             .field("range", &self.range)
@@ -65,8 +65,8 @@ impl std::fmt::Debug for Tree {
     }
 }
 
-impl Tree {
-    /// Lazily evaluate a Tree, caching its value
+impl Expr {
+    /// Lazily evaluate a Expr, caching its value
     pub fn eval(&self) -> Result<Gc<NixValue>, EvalError> {
         let mut value_borrow = self.value.borrow_mut();
         if let Some(ref value) = *value_borrow {
@@ -81,23 +81,23 @@ impl Tree {
 
     fn eval_uncached(&self) -> Result<Gc<NixValue>, EvalError> {
         match &self.source {
-            TreeSource::Paren { inner } => inner.as_ref()?.eval(),
-            TreeSource::Literal { value } => Ok(Gc::new(value.clone())),
-            TreeSource::BoolAnd { left, right } => {
+            ExprSource::Paren { inner } => inner.as_ref()?.eval(),
+            ExprSource::Literal { value } => Ok(Gc::new(value.clone())),
+            ExprSource::BoolAnd { left, right } => {
                 if left.as_ref()?.eval()?.as_bool()? {
                     right.as_ref()?.eval()
                 } else {
                     Ok(Gc::new(NixValue::Bool(false)))
                 }
             }
-            TreeSource::BoolOr { left, right } => {
+            ExprSource::BoolOr { left, right } => {
                 if !left.as_ref()?.eval()?.as_bool()? {
                     right.as_ref()?.eval()
                 } else {
                     Ok(Gc::new(NixValue::Bool(true)))
                 }
             }
-            TreeSource::Implication { left, right } => {
+            ExprSource::Implication { left, right } => {
                 if !left.as_ref()?.eval()?.as_bool()? {
                     Ok(Gc::new(NixValue::Bool(true)))
                 } else {
@@ -108,7 +108,7 @@ impl Tree {
             #[allow(clippy::enum_glob_use)]
             #[allow(clippy::float_cmp)]
             // We want to match the Nix reference implementation
-            TreeSource::BinOp { op, left, right } => {
+            ExprSource::BinOp { op, left, right } => {
                 use BinOpKind::*;
                 use NixValue::*;
 
@@ -169,10 +169,10 @@ impl Tree {
 
                 Ok(Gc::new(out))
             }
-            TreeSource::UnaryInvert { value } => {
+            ExprSource::UnaryInvert { value } => {
                 Ok(Gc::new(NixValue::Bool(!value.as_ref()?.eval()?.as_bool()?)))
             }
-            TreeSource::UnaryNegate { value } => {
+            ExprSource::UnaryNegate { value } => {
                 Ok(Gc::new(match value.as_ref()?.eval()?.borrow() {
                     NixValue::Integer(x) => NixValue::Integer(-x),
                     NixValue::Float(x) => NixValue::Float(-x),
@@ -186,17 +186,17 @@ impl Tree {
         }
     }
 
-    /// Used for recursing to find the Tree at a cursor position
-    pub fn children(&self) -> Vec<&Box<Tree>> {
+    /// Used for recursing to find the Expr at a cursor position
+    pub fn children(&self) -> Vec<&Box<Expr>> {
         match &self.source {
-            TreeSource::Paren { inner } => vec![inner],
-            TreeSource::Literal { value: _ } => vec![],
-            TreeSource::BinOp { op: _, left, right } => vec![left, right],
-            TreeSource::BoolAnd { left, right } => vec![left, right],
-            TreeSource::BoolOr { left, right } => vec![left, right],
-            TreeSource::Implication { left, right } => vec![left, right],
-            TreeSource::UnaryInvert { value } => vec![value],
-            TreeSource::UnaryNegate { value } => vec![value],
+            ExprSource::Paren { inner } => vec![inner],
+            ExprSource::Literal { value: _ } => vec![],
+            ExprSource::BinOp { op: _, left, right } => vec![left, right],
+            ExprSource::BoolAnd { left, right } => vec![left, right],
+            ExprSource::BoolOr { left, right } => vec![left, right],
+            ExprSource::Implication { left, right } => vec![left, right],
+            ExprSource::UnaryInvert { value } => vec![value],
+            ExprSource::UnaryNegate { value } => vec![value],
         }
         .into_iter()
         .map(|x| x.as_ref())

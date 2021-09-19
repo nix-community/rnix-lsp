@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use crate::error::{EvalError, InternalError, ERR_PARSING};
 use crate::value::*;
 use crate::{
-    eval::{Tree, TreeSource},
+    eval::{Expr, ExprSource},
     scope::Scope,
 };
 use gc::{Finalize, Gc, GcCell, Trace};
@@ -30,18 +30,18 @@ pub enum BinOpKind {
     NotEqual,
 }
 
-impl Tree {
+impl Expr {
     /// Convert a rnix-parser tree into a syntax tree that can be lazily evaluated.
     ///
     /// Note that the lsp searches inward from the root of the file, so if a
     /// rnix::SyntaxNode isn't recognized, we don't get tooling for its children.
     pub fn parse(node: SyntaxNode, scope: Gc<Scope>) -> Result<Self, EvalError> {
         let range = Some(node.text_range());
-        let recurse = |node| Tree::parse(node, scope.clone()).map(|x| Box::new(x));
+        let recurse = |node| Expr::parse(node, scope.clone()).map(|x| Box::new(x));
         let source = match ParsedType::try_from(node.clone()).map_err(|_| ERR_PARSING)? {
             ParsedType::Paren(paren) => {
                 let inner = paren.inner().ok_or(ERR_PARSING)?;
-                TreeSource::Paren {
+                ExprSource::Paren {
                     inner: recurse(inner),
                 }
             }
@@ -51,7 +51,7 @@ impl Tree {
                 let right = recurse(binop.rhs().ok_or(ERR_PARSING)?);
                 macro_rules! binop_source {
                     ( $op:expr ) => {
-                        TreeSource::BinOp {
+                        ExprSource::BinOp {
                             op: $op,
                             left,
                             right,
@@ -59,9 +59,9 @@ impl Tree {
                     };
                 }
                 match binop.operator() {
-                    And => TreeSource::BoolAnd { left, right },
-                    Or => TreeSource::BoolOr { left, right },
-                    Implication => TreeSource::Implication { left, right },
+                    And => ExprSource::BoolAnd { left, right },
+                    Or => ExprSource::BoolOr { left, right },
+                    Implication => ExprSource::Implication { left, right },
                     IsSet => {
                         return Err(EvalError::Internal(InternalError::Unimplemented(
                             "IsSet".to_string(),
@@ -84,10 +84,10 @@ impl Tree {
             ParsedType::UnaryOp(unary) => {
                 use rnix::types::UnaryOpKind;
                 match unary.operator() {
-                    UnaryOpKind::Invert => TreeSource::UnaryInvert {
+                    UnaryOpKind::Invert => ExprSource::UnaryInvert {
                         value: recurse(unary.value().ok_or(ERR_PARSING)?),
                     },
-                    UnaryOpKind::Negate => TreeSource::UnaryNegate {
+                    UnaryOpKind::Negate => ExprSource::UnaryNegate {
                         value: recurse(unary.value().ok_or(ERR_PARSING)?),
                     },
                 }
@@ -95,7 +95,7 @@ impl Tree {
             ParsedType::Value(literal) => {
                 use rnix::value::Value::*;
                 // Booleans `true` and `false` are global variables, not literals
-                TreeSource::Literal {
+                ExprSource::Literal {
                     value: match literal.to_value().map_err(|_| ERR_PARSING)? {
                         Float(x) => NixValue::Float(x),
                         Integer(x) => NixValue::Integer(x),

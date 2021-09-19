@@ -1,4 +1,4 @@
-use eval::Tree;
+use eval::Expr;
 use gc::Gc;
 use rnix::types::Wrapper;
 use scope::Scope;
@@ -10,7 +10,7 @@ fn eval(code: &str) -> NixValue {
     let ast = rnix::parse(&code);
     let root = ast.root().inner().unwrap();
     let path = std::env::current_dir().unwrap();
-    let out = Tree::parse(root, Gc::new(Scope::Root(path))).unwrap();
+    let out = Expr::parse(root, Gc::new(Scope::Root(path))).unwrap();
     let tmp = out.eval();
     let val: &NixValue = tmp.as_ref().unwrap().borrow();
     val.clone()

@@ -1,4 +1,4 @@
-use crate::{App, eval::Tree, utils::{self, Datatype, Var}};
+use crate::{App, eval::Expr, utils::{self, Datatype, Var}};
 use lsp_types::Url;
 use rnix::{types::*, value::Value as ParsedValue, SyntaxNode};
 use std::{
@@ -155,7 +155,7 @@ impl App {
                     let ast = rnix::parse(&content);
                     let node = ast.root().inner()?.clone();
                     let gc_root = Gc::new(Scope::Root(path));
-                    let evaluated = Tree::parse(node.clone(), gc_root);
+                    let evaluated = Expr::parse(node.clone(), gc_root);
                     placeholder.insert((ast, content, evaluated));
                     node
                 }

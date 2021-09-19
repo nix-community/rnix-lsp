@@ -1,8 +1,8 @@
-use crate::eval::Tree;
+use crate::eval::Expr;
 use gc::{Finalize, Gc, Trace};
 use std::path::PathBuf;
 
-/// A parent Tree's scope is used to provide tooling for its child Trees.
+/// A parent Expr's scope is used to provide tooling for its child Exprs.
 /// This enum would provide four scope types:
 /// - None: Used for calculated literals. For example, for the string
 ///   interpolation `"prefix${suffix}"`, the literal `prefix` by itself
@@ -23,7 +23,7 @@ pub enum Scope {
 }
 
 impl Scope {
-    /// Finds the Tree of an identifier in the scope.
+    /// Finds the Expr of an identifier in the scope.
     ///
     /// This would do two passes up the tree:
     /// 1. Check Scope::Normal and Scope::Root
@@ -42,7 +42,7 @@ impl Scope {
     /// «primop» # found in Scope::Root, which we reach before Scope::With
     /// ```
     #[allow(dead_code)] // this function will be implemented later
-    pub fn get(&self, _name: &str) -> Option<Gc<Tree>> {
+    pub fn get(&self, _name: &str) -> Option<Gc<Expr>> {
         None
     }
 }

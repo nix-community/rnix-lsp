@@ -1,4 +1,4 @@
-use gc::{Finalize, Gc, GcCell, Trace};
+use gc::{Finalize, Trace};
 
 pub const ERR_PARSING: EvalError = EvalError::Internal(InternalError::Parsing);
 
