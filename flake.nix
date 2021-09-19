@@ -4,6 +4,8 @@
   inputs = {
     naersk.url = "github:nmattia/naersk";
     utils.url = "github:numtide/flake-utils";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-21.05";
+    naersk.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs = { self, nixpkgs, utils, naersk }:
@@ -16,6 +18,8 @@
         packages.rnix-lsp = naersk-lib.buildPackage {
           pname = "rnix-lsp";
           root = ./.;
+          doCheck = true;
+          checkInputs = [ pkgs.nixUnstable ];
         };
         defaultPackage = packages.rnix-lsp;
 

@@ -213,3 +213,117 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsp_server::Connection;
+
+    #[test]
+    fn test_suggest_let_in_variable() {
+        let expr = "let ab = 1; in a";
+        let root = rnix::parse(expr).node();
+        let c = Connection::memory();
+        let suggestions = (App {
+            files: HashMap::new(),
+            conn: c.0,
+        }).scope_for_ident(
+            Url::parse("file:///default.nix").unwrap(),
+            &root,
+            15
+        );
+
+        assert!(suggestions.is_some());
+        let val = suggestions.unwrap();
+        assert_eq!("a", val.2);
+        assert!(val.1.contains_key("ab"));
+        assert_eq!(Datatype::Variable, val.1.get("ab").unwrap().datatype);
+    }
+
+    #[test]
+    fn test_find_inherit_scope() {
+        let expr = "let ab = { abc = 1; }; in { inherit (ab) abc; }";
+        let root = rnix::parse(expr).node();
+        let mut app = App {
+            files: HashMap::new(),
+            conn: Connection::memory().0,
+        };
+        let suggestions = app.scope_for_ident(
+            Url::parse("file:///default.nix").unwrap(),
+            &root,
+            37
+        );
+
+        assert!(suggestions.is_some());
+        let val = suggestions.unwrap();
+        assert!(val.1.contains_key("ab"));
+
+        let suggestions_attr_set = app.scope_for_ident(
+            Url::parse("file:///default.nix").unwrap(),
+            &root,
+            41
+        );
+        assert!(suggestions_attr_set.is_some());
+        let val = suggestions_attr_set.unwrap();
+        assert!(val.1.contains_key("abc"));
+    }
+
+    #[test]
+    fn test_ident_traverse_attr_path() {
+        let root = rnix::parse("let ab = { cd = 2; }; in ab. ").node();
+        let mut app = App {
+            files: HashMap::new(),
+            conn: Connection::memory().0,
+        };
+
+        let suggestions = app.scope_for_ident(
+            Url::parse("file:///default.nix").unwrap(),
+            &root,
+            28
+        );
+
+        assert!(suggestions.is_some());
+        let val = suggestions.unwrap();
+        assert!(val.1.contains_key("cd"));
+    }
+
+    #[test]
+    fn test_provide_builtins() {
+        let root = rnix::parse("builtins.map (y: y)").node();
+        let mut app = App {
+            files: HashMap::new(),
+            conn: Connection::memory().0,
+        };
+
+        let suggestions = app.scope_for_ident(
+            Url::parse("file:///default.nix").unwrap(),
+            &root,
+            9
+        );
+
+        assert!(suggestions.is_some());
+        let val = suggestions.unwrap();
+        assert!(val.1.contains_key("abort"));
+        assert!(val.1.contains_key("trace"));
+
+        assert!(val.1.get("abort").unwrap().documentation.is_some());
+    }
+
+    #[test]
+    fn test_builtin_fallback() {
+        let builtin = LSPDetails::builtin_fallback();
+        assert_eq!(Datatype::Lambda, builtin.datatype);
+        assert!(builtin.documentation.is_none());
+    }
+
+    #[test]
+    fn test_builtin_from_dump_builtins() {
+        let builtin = LSPDetails::builtin_with_doc(
+            false,
+            Some(String::from("from -> to")),
+            String::from("foo")
+        );
+        assert_eq!(Datatype::Lambda, builtin.datatype);
+        assert_eq!("Lambda: from -> to -> Result", builtin.render_detail());
+    }
+}

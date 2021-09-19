@@ -40,6 +40,7 @@ use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestI
 use lsp_types::{
     notification::{Notification as _, *},
     request::{Request as RequestTrait, *},
+    OneOf,
     *,
 };
 use rnix::{
@@ -50,8 +51,7 @@ use rnix::{
 };
 use scope::Scope;
 use std::{
-    borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     panic,
     path::{Path, PathBuf},
     process,
@@ -88,14 +88,14 @@ fn real_main() -> Result<(), Error> {
         completion_provider: Some(CompletionOptions {
             ..CompletionOptions::default()
         }),
-        definition_provider: Some(true),
-        document_formatting_provider: Some(true),
+        definition_provider: Some(OneOf::Left(true)),
+        document_formatting_provider: Some(OneOf::Left(true)),
         document_link_provider: Some(DocumentLinkOptions {
             resolve_provider: Some(false),
             work_done_progress_options: WorkDoneProgressOptions::default(),
         }),
-        hover_provider: Some(true),
-        rename_provider: Some(RenameProviderCapability::Simple(true)),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        rename_provider: Some(OneOf::Left(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
     })
@@ -183,7 +183,7 @@ impl App {
         }
         let mut req = Some(req);
         if let Some((id, params)) = cast::<GotoDefinition>(&mut req) {
-            if let Some(pos) = self.lookup_definition(params) {
+            if let Some(pos) = self.lookup_definition(params.text_document_position_params) {
                 self.reply(Response::new_ok(id, pos));
             } else {
                 self.reply(Response::new_ok(id, ()));
@@ -249,6 +249,8 @@ impl App {
             ))
         }
     }
+
+    // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_didChange
     fn handle_notification(&mut self, req: Notification) -> Result<(), Error> {
         match &*req.method {
             DidOpenTextDocument::METHOD => {
@@ -265,66 +267,65 @@ impl App {
                 }
             }
             DidChangeTextDocument::METHOD => {
+                // Per the language server spec (https://git.io/JcrvY), we should apply changes
+                // in order, the same as we would if we received them in separate notifications.
+                // That means that, given TextDocumentContentChangeEvents A and B and original
+                // document S, change A refers to S -> S' and B refers to S' -> S''. So we don't
+                // need to remember original document indicies when applying multiple changes.
                 let params: DidChangeTextDocumentParams = serde_json::from_value(req.params)?;
-                if let Some(change) = params.content_changes.into_iter().last() {
-                    let uri = params.text_document.uri;
-                    let mut content = Cow::from(&change.text);
-                    if let Some(range) = &change.range {
-                        if self.files.contains_key(&uri) {
-                            let original =
-                                self.files.get(&uri).unwrap().1.lines().collect::<Vec<_>>();
-                            let start_line = range.start.line;
-                            let start_char = range.start.character;
-                            let end_line = range.end.line;
-                            let end_char = range.end.character;
-
-                            let mut out = String::from("");
-                            let len = original.len() as u64;
-                            for i in 0..len {
-                                if i < start_line || i > end_line {
-                                    out += original.get(i as usize).unwrap();
-                                    if i != len - 1 {
-                                        out += "\n";
-                                    }
-                                    continue;
-                                }
-                                if i == start_line {
-                                    out += &original
-                                        .get(i as usize)
-                                        .unwrap()
-                                        .chars()
-                                        .into_iter()
-                                        .take(start_char as usize)
-                                        .collect::<String>();
-                                    out += &change.text;
-                                }
-                                if i == end_line {
-                                    out += &original
-                                        .get(i as usize)
-                                        .unwrap()
-                                        .chars()
-                                        .into_iter()
-                                        .skip(end_char as usize)
-                                        .collect::<String>();
-
-                                    if i != len - 1 {
-                                        out += "\n";
-                                    }
-                                }
-                            }
-
-                            content = Cow::Owned(out);
+                let uri = params.text_document.uri;
+                let mut content = self
+                    .files
+                    .get(&uri)
+                    .map(|f| f.1.clone())
+                    .unwrap_or("".to_string());
+                for change in params.content_changes.into_iter() {
+                    let range = match change.range {
+                        Some(x) => x,
+                        None => {
+                            content = change.text;
+                            continue;
                         }
-                    }
-                    let parsed = rnix::parse(&content);
-                    self.send_diagnostics(uri.clone(), &content, &parsed)?;
-                    if let Ok(path) = PathBuf::from_str(uri.path()) {
-                        let gc_root = Gc::new(Scope::Root(path));
-                        let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
-                        let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
-                        self.files
-                            .insert(uri, (parsed, content.to_owned().to_string(), evaluated));
-                    }
+                    };
+
+                    let content_utf16 = content.encode_utf16().collect::<Vec<_>>();
+                    let ascii_newline = 10;
+                    let mut newline_iter = content_utf16
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, x)| *x == ascii_newline);
+
+                    let start_idx = if range.start.line == 0 {
+                        0
+                    } else {
+                        newline_iter.nth(range.start.line as usize - 1).unwrap().0 + 1
+                    } + range.start.character as usize;
+
+                    let num_changed_lines = range.end.line - range.start.line;
+                    let end_idx = if num_changed_lines == 0 {
+                        start_idx + (range.end.character - range.start.character) as usize
+                    } else {
+                        // Note that .nth() is relative, not absolute
+                        newline_iter.nth(num_changed_lines as usize - 1).unwrap().0 + 1
+                            + range.end.character as usize
+                    };
+
+                    // Language server ranges are based on UTF-16 (https://git.io/JcrUi)
+                    let mut new_content = String::from_utf16_lossy(&content_utf16[..start_idx]);
+                    new_content.push_str(&change.text);
+                    let suffix = String::from_utf16_lossy(&content_utf16[end_idx..]);
+                    new_content.push_str(&suffix);
+
+                    content = new_content;
+                }
+                let parsed = rnix::parse(&content);
+                self.send_diagnostics(uri.clone(), &content, &parsed)?;
+                if let Ok(path) = PathBuf::from_str(uri.path()) {
+                    let gc_root = Gc::new(Scope::Root(path));
+                    let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
+                    let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
+                    self.files
+                        .insert(uri, (parsed, content.to_owned().to_string(), evaluated));
                 }
             }
             _ => (),
@@ -348,9 +349,10 @@ impl App {
             None
         }
     }
-    fn hover(&self, params: TextDocumentPositionParams) -> Option<(Option<Range>, String)> {
-        let (_, content, expr) = self.files.get(&params.text_document.uri)?;
-        let offset = utils::lookup_pos(content, params.position)?;
+    fn hover(&self, params: HoverParams) -> Option<(Option<Range>, String)> {
+        let pos_params = params.text_document_position_params;
+        let (_, content, expr) = self.files.get(&pos_params.text_document.uri)?;
+        let offset = utils::lookup_pos(content, pos_params.position)?;
         let child_expr = climb_expr(expr.as_ref().ok()?, offset).clone();
         let range = utils::range(content, child_expr.range?);
         let msg = match child_expr.eval() {
@@ -382,10 +384,10 @@ impl App {
                         .documentation
                         .map(|x| lsp_types::Documentation::String(x)),
                     deprecated: Some(data.deprecated),
-                    text_edit: Some(TextEdit {
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         range: utils::range(content, node.node().text_range()),
                         new_text: var.clone(),
-                    }),
+                    })),
                     detail: Some(det),
                     ..CompletionItem::default()
                 });
@@ -452,7 +454,8 @@ impl App {
         let parent_dir = Path::new(params.text_document.uri.path()).parent();
         let home_dir = home_dir();
         let home_dir = home_dir.as_ref();
-        let mut document_links = vec![];
+
+        let mut links = VecDeque::new();
         for node in current_ast.node().descendants() {
             let value = Value::cast(node.clone()).and_then(|v| v.to_value().ok());
             if let Some(RValue::Path(anchor, path)) = value {
@@ -462,19 +465,64 @@ impl App {
                     RAnchor::Home => home_dir.map(|home| home.join(path)),
                     RAnchor::Store => None,
                 }
-                .and_then(|path| std::fs::canonicalize(&path).ok())
+                .map(|path| {
+                    if path.is_dir() {
+                        path.join("default.nix")
+                    } else {
+                        path
+                    }
+                })
                 .filter(|path| path.is_file())
                 .and_then(|s| Url::parse(&format!("file://{}", s.to_string_lossy())).ok());
+
                 if let Some(file_url) = file_url {
-                    document_links.push(DocumentLink {
-                        target: file_url,
-                        range: utils::range(current_content, node.text_range()),
-                        tooltip: None,
-                    })
+                    links.push_back((node.text_range(), file_url))
                 }
             }
         }
-        Some(document_links)
+
+        let mut lsp_links = vec![];
+
+        let mut cur_line_start = 0;
+        let mut next_link_pos = usize::from(links.front()?.0.start());
+        'pos_search: for (line_num, (cur_line_end, _)) in
+            current_content.match_indices('\n').enumerate()
+        {
+            while next_link_pos >= cur_line_start && next_link_pos < cur_line_end {
+                // We already checked if the list is empty
+                let (range, url) = links.pop_front().unwrap();
+
+                // Nix doesn't have multi-line links
+                let start_pos = Position {
+                    line: line_num as u32,
+                    character: (next_link_pos - cur_line_start) as u32,
+                };
+                let end_pos = Position {
+                    line: line_num as u32,
+                    character: (usize::from(range.end()) - cur_line_start) as u32,
+                };
+                let lsp_range = Range {
+                    start: start_pos,
+                    end: end_pos,
+                };
+
+                lsp_links.push(DocumentLink {
+                    target: Some(url),
+                    data: None,
+                    range: lsp_range,
+                        tooltip: None,
+                });
+
+                if let Some((range, _)) = links.front() {
+                    next_link_pos = usize::from(range.start());
+                } else {
+                    break 'pos_search;
+                }
+            }
+            cur_line_start = cur_line_end + 1;
+        }
+
+        Some(lsp_links)
     }
     fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
         let errors = ast.errors();
