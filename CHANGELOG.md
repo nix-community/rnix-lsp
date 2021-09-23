@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+Nothing here, yet.
+
+## [v0.2.0] - 2021-09-23
+
+Sadly, this is the first release
+[without @jD91mZM2](https://www.redox-os.org/news/open-source-mental-health/), so we -
+the current maintainers
+[@aaronjanse](https://github.com/aaronjanse) & [@Ma27](https://github.com/Ma27/) - would like
+to dedicate this release to them to make sure they're not forgotten.
+
 ### Added
 
 * The LSP implementation now supports
@@ -31,9 +41,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 * `inherit`-expressions and `var@{ a, b, … }` have proper autocompletion now (only for variables
   from within the same file, currently) (by [@Ma27](https://github.com/Ma27/)).
 
+### Special thanks
+
+* One of the reasons for this not being released earlier was a
+  [memory leak](https://github.com/nix-community/rnix-lsp/issues/33) where we had a hard time
+  to reliably reproduce this (and thus couldn't investigate properly).
+
+  So, big thanks to [@fufexan](https://github.com/fufexan/) who helped us to finding a
+  minimal example triggering the issue and helping us with the investigation in general.
+
 ## [v0.1.0] - 2020-01-12
 
 * Initial release.
 
-[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.1.0...master
+[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.0...master
+[v0.2.0]: https://github.com/nix-community/rnix-lsp/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/nix-community/rnix-lsp/compare/b3586e567c1e558988416676680833294699aeaa...v0.1.0
