@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Nothing here, yet.
 
+## [v0.2.1] - 2021-09-23
+
+### Changed
+
+* Fixed `Cargo.lock`.
+
 ## [v0.2.0] - 2021-09-23
 
 Sadly, this is the first release
@@ -54,6 +60,7 @@ to dedicate this release to them to make sure they're not forgotten.
 
 * Initial release.
 
-[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.0...master
+[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.1...master
+[v0.2.1]: https://github.com/nix-community/rnix-lsp/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/nix-community/rnix-lsp/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/nix-community/rnix-lsp/compare/b3586e567c1e558988416676680833294699aeaa...v0.1.0
