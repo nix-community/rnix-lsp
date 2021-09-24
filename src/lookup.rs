@@ -155,8 +155,8 @@ impl App {
                     let ast = rnix::parse(&content);
                     let node = ast.root().inner()?.clone();
                     let gc_root = Gc::new(Scope::Root(path));
-                    let evaluated = Expr::parse(node.clone(), gc_root);
-                    placeholder.insert((ast, content, evaluated));
+                    let parsed = Expr::parse(node.clone(), gc_root);
+                    placeholder.insert((ast, content, parsed));
                     node
                 }
             };
