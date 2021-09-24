@@ -1,7 +1,4 @@
-use crate::{
-    utils::{self, Datatype, Var},
-    App,
-};
+use crate::{App, eval::Expr, utils::{self, Datatype, Var}};
 use lsp_types::Url;
 use rnix::{types::*, value::Value as ParsedValue, SyntaxNode};
 use std::{
@@ -14,6 +11,8 @@ use lazy_static::lazy_static;
 
 use std::{process, str};
 use regex;
+use gc::Gc;
+use crate::scope::Scope;
 
 lazy_static! {
     static ref BUILTINS: Vec<String> = vec![
@@ -114,6 +113,7 @@ impl App {
             info.name,
         ))
     }
+
     pub fn scope_from_node(
         &mut self,
         file: &mut Rc<Url>,
@@ -147,14 +147,16 @@ impl App {
             let path = utils::uri_path(&file)?;
             node = match self.files.entry((**file).clone()) {
                 Entry::Occupied(entry) => {
-                    let (ast, _code) = entry.get();
+                    let (ast, _code, _) = entry.get();
                     ast.root().inner()?.clone()
                 }
                 Entry::Vacant(placeholder) => {
                     let content = fs::read_to_string(&path).ok()?;
                     let ast = rnix::parse(&content);
                     let node = ast.root().inner()?.clone();
-                    placeholder.insert((ast, content));
+                    let gc_root = Gc::new(Scope::Root(path));
+                    let parsed = Expr::parse(node.clone(), gc_root);
+                    placeholder.insert((ast, content, parsed));
                     node
                 }
             };
