@@ -567,7 +567,7 @@ fn climb_expr(here: &Expr, offset: usize) -> &Expr {
         };
         let start: usize = range.start().into();
         let end: usize = range.end().into();
-        if start <= offset && offset <= end {
+        if start <= offset && offset < end {
             return climb_expr(child, offset);
         }
     }
