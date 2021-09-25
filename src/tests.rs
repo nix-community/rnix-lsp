@@ -141,3 +141,76 @@ fn test_hover_integration() {
 
     handle.stop().join().expect("Failed to gracefully terminate LSP worker thread!");
 }
+
+#[test]
+fn test_rename() {
+    let urlpath = "file:///code/default.nix";
+    let (client, handle) = prepare_integration_test("let a = { b = a; }; in a", urlpath);
+
+    let r = Request {
+        id: RequestId::from(23),
+        method: String::from("textDocument/rename"),
+        params: json!({
+            "textDocument": {
+                "uri": urlpath
+            },
+            "position": {
+                "line": 0,
+                "character": 24,
+            },
+            "newName": "c",
+        })
+    };
+    client.sender.send(r.into()).expect("Cannot send rename request!");
+
+    expect_diagnostics(&client);
+    let msg = recv_msg(&client);
+
+    let response = coerce_response(msg).result.expect("Expected rename response!");
+    let changes = &response
+        .as_object()
+        .unwrap()["changes"]["file:///code/default.nix"]
+        .as_array()
+        .expect("Changes must be an array!");
+
+    // `let a`, `{ b = a; }`, `in a` is where `a` should be replaced with `c`.
+    assert_eq!(3, changes.len());
+
+    let first = changes
+        .get(0)
+        .expect("Array should have three elements!")
+        .as_object()
+        .expect("Changes should be objects!");
+
+    assert_eq!("c", first["newText"]);
+    assert_eq!(4, first["range"]["start"]["character"]);
+    assert_eq!(5, first["range"]["end"]["character"]);
+    assert_eq!(0, first["range"]["start"]["line"]);
+    assert_eq!(0, first["range"]["end"]["line"]);
+
+    let second = changes
+        .get(1)
+        .expect("Array should have three elements!")
+        .as_object()
+        .expect("Changes should be objects!");
+
+    assert_eq!("c", second["newText"]);
+    assert_eq!(14, second["range"]["start"]["character"]);
+    assert_eq!(15, second["range"]["end"]["character"]);
+    assert_eq!(0, second["range"]["start"]["line"]);
+    assert_eq!(0, second["range"]["end"]["line"]);
+
+    let third = changes
+        .get(2)
+        .expect("Array should have three elements!")
+        .as_object()
+        .expect("Changes should be objects!");
+
+    assert_eq!("c", third["newText"]);
+    assert_eq!(23, third["range"]["start"]["character"]);
+    assert_eq!(24, third["range"]["end"]["character"]);
+    assert_eq!(0, third["range"]["start"]["line"]);
+    assert_eq!(0, third["range"]["end"]["line"]);
+
+    handle.stop().join().expect("Failed to gracefully terminate LSP worker thread!");
+}
