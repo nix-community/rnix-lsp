@@ -108,7 +108,16 @@ impl std::fmt::Debug for Expr {
 impl Expr {
     /// Lazily evaluate a Expr, caching its value
     pub fn eval(&self) -> Result<Gc<NixValue>, EvalError> {
-        let mut value_borrow = self.value.borrow_mut();
+        let mut value_borrow = match self.value.try_borrow_mut() {
+            Ok(x) => x,
+            Err(_) => {
+                // We already borrow ourselves as mutable, so we called .eval() on ourself
+                // from an .eval(), which is probably infinite recursion.
+                return Err(EvalError::Internal(InternalError::Unimplemented(
+                    "infinite recursion".to_string(),
+                )))
+            }
+        };
         if let Some(ref value) = *value_borrow {
             Ok(value.clone())
         } else {
