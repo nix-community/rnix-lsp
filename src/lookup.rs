@@ -3,9 +3,12 @@ use lsp_types::Url;
 use rnix::{types::*, value::Value as ParsedValue, SyntaxNode};
 use std::{
     collections::{hash_map::Entry, HashMap},
-    fs,
+    path::PathBuf,
     rc::Rc,
 };
+
+#[cfg(not(test))]
+use std::fs;
 
 use lazy_static::lazy_static;
 
@@ -151,7 +154,7 @@ impl App {
                     ast.root().inner()?.clone()
                 }
                 Entry::Vacant(placeholder) => {
-                    let content = fs::read_to_string(&path).ok()?;
+                    let content = App::read_from_str(&path)?;
                     let ast = rnix::parse(&content);
                     let node = ast.root().inner()?.clone();
                     let gc_root = Gc::new(Scope::Root(path));
@@ -166,6 +169,11 @@ impl App {
             utils::populate(&file, &mut scope, &set, Datatype::Attribute);
         }
         Some(scope)
+    }
+
+    #[cfg(not(test))]
+    fn read_from_str(p: &PathBuf) -> Option<String> {
+        fs::read_to_string(&p).ok()
     }
 
     fn fallback_builtins(&self, list: Vec<String>) -> HashMap<String, LSPDetails> {
@@ -325,5 +333,55 @@ mod tests {
         );
         assert_eq!(Datatype::Lambda, builtin.datatype);
         assert_eq!("Lambda: from -> to -> Result", builtin.render_detail());
+    }
+
+    impl App {
+        #[cfg(test)]
+        pub fn read_from_str(_p: &PathBuf) -> Option<String> {
+            Some(String::from("(1 + 1)"))
+        }
+    }
+
+    #[test]
+    fn test_scope_imports_files() {
+        let expr = "let a = import ./foo.nix; in a.b";
+        let root = rnix::parse(expr).node();
+        let mut app = App {
+            files: HashMap::new(),
+            conn: Connection::memory().0,
+        };
+
+        let url = Url::parse("file:///code/default.nix").unwrap();
+        app.scope_for_ident(
+            url,
+            &root,
+            32
+        );
+
+        let f = app.files.get(&Url::parse("file:///code/foo.nix").unwrap());
+        assert!(f.is_some());
+
+        let parsed = f.unwrap().clone().2.unwrap();
+        assert_eq!(1, parsed.children().len());
+    }
+
+    #[test]
+    fn test_scope_import_within_attr_set() {
+        let expr = "let a = { b = import ./foo.nix; }; in a.b.c";
+        let root = rnix::parse(expr).node();
+        let mut app = App {
+            files: HashMap::new(),
+            conn: Connection::memory().0,
+        };
+
+        let url = Url::parse("file:///code/default.nix").unwrap();
+        app.scope_for_ident(
+            url,
+            &root,
+            43
+        );
+
+        println!("{:?}", app.files.keys());
+        assert!(app.files.get(&Url::parse("file:///code/foo.nix").unwrap()).is_some());
     }
 }
