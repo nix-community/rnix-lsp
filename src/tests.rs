@@ -214,3 +214,21 @@ fn test_rename() {
 
     handle.stop().join().expect("Failed to gracefully terminate LSP worker thread!");
 }
+
+#[test]
+fn attrs_simple() {
+    let code = "{ x = 1; y = 2; }.x";
+    assert_eq!(eval(code).as_int().unwrap(), 1);
+}
+
+#[test]
+fn attrs_path() {
+    let code = "{ x.y.z = 3; }.x.y.z";
+    assert_eq!(eval(code).as_int().unwrap(), 3);
+}
+
+#[test]
+fn attrs_rec() {
+    let code = "rec { x = 4; y = x; }.y";
+    assert_eq!(eval(code).as_int().unwrap(), 4);
+}

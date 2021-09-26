@@ -18,7 +18,10 @@ impl From<&EvalError> for EvalError {
 
 #[derive(Debug, Clone, Trace, Finalize)]
 pub enum InternalError {
+    /// Used when the error might be our fault
     Unimplemented(String),
+    /// Used instead of panics like `unreachable!`
+    Unexpected(String),
     Parsing,
 }
 
@@ -43,7 +46,8 @@ impl std::fmt::Display for InternalError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             InternalError::Parsing => write!(f, "parsing"),
-            InternalError::Unimplemented(msg) => write!(f, "{}", msg),
+            InternalError::Unimplemented(msg) => write!(f, "unimplemented: {}", msg),
+            InternalError::Unexpected(msg) => write!(f, "unexpected: {}", msg),
         }
     }
 }
