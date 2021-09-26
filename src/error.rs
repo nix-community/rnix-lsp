@@ -6,7 +6,6 @@ pub const ERR_PARSING: EvalError = EvalError::Internal(InternalError::Parsing);
 #[derive(Debug, Clone, Trace, Finalize)]
 pub enum EvalError {
     Internal(InternalError),
-    /// Used for Nix errors such as division by zero
     Value(ValueError),
 }
 
@@ -16,6 +15,13 @@ impl From<&EvalError> for EvalError {
     }
 }
 
+/// Used when an error might be the fault of the rnix-lsp implementation.
+/// Also used for parsing, since the LSP uses rnix-parser directly for
+/// parsing; there's no need for the evaluator to return its own copies
+/// of rnix-lsp errors.
+///
+/// When reporting errors, we strongly want to avoid false positives;
+/// we never want an error message shown on correct code.
 #[derive(Debug, Clone, Trace, Finalize)]
 pub enum InternalError {
     /// Used when the error might be our fault
@@ -26,6 +32,10 @@ pub enum InternalError {
 }
 
 #[derive(Debug, Clone, Trace, Finalize)]
+/// Used when we're confident that the user/code is at fault, such as
+/// division by zero. We use the parser directly for error reporting,
+/// so the evaluator returns its copies of parsing errors as internal,
+/// silent errors (see InternalError above).
 pub enum ValueError {
     DivisionByZero,
     TypeError(String),
