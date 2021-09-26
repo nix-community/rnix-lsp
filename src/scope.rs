@@ -13,7 +13,7 @@ use std::{collections::HashMap, path::PathBuf};
 /// - Root: Provided for each file. Used for providing global variables
 ///   and tracking the `import` dependency tree. Also used for detecting
 ///   which file an expression is defined in.
-/// - Normal: Created by `let in` and `rec { }`. All the variable names
+/// - Let: Created by `let in` and `rec { }`. All the variable names
 ///   can be derived using static analysis with rnix-parser; we don't need
 ///   to evaluate anything to detect if a variable name is in this scope
 /// - With: Created by `with $VAR` expressions. We need to evaluate $VAR
@@ -21,7 +21,7 @@ use std::{collections::HashMap, path::PathBuf};
 #[derive(Trace, Finalize)]
 pub enum Scope {
     Root(PathBuf),
-    Normal {
+    Let {
         parent: Gc<Scope>,
         contents: GcCell<HashMap<String, Gc<Expr>>>,
     },
@@ -67,7 +67,7 @@ impl Scope {
                 },
                 scope: Gc::new(Scope::None),
             })),
-            Scope::Normal { parent, contents } => match contents.borrow().get(name) {
+            Scope::Let { parent, contents } => match contents.borrow().get(name) {
                 Some(x) => Some(x.clone()),
                 None => parent.get_normal(name),
             },
@@ -78,7 +78,7 @@ impl Scope {
         match &self {
             Scope::None => None,
             Scope::Root(path) => Some(path.clone()),
-            Scope::Normal { parent, .. } => parent.root_path(),
+            Scope::Let { parent, .. } => parent.root_path(),
         }
     }
 }

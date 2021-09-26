@@ -36,9 +36,12 @@ pub enum InternalError {
 /// division by zero. We use the parser directly for error reporting,
 /// so the evaluator returns its copies of parsing errors as internal,
 /// silent errors (see InternalError above).
+// TODO: store error text ranges to help the user figure out
+//       exactly where an error is caused
 pub enum ValueError {
     DivisionByZero,
     TypeError(String),
+    AttrAlreadyDefined(String),
 }
 
 impl std::error::Error for EvalError {}
@@ -66,6 +69,7 @@ impl std::fmt::Display for ValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             ValueError::DivisionByZero => write!(f, "division by zero"),
+            ValueError::AttrAlreadyDefined(name) => write!(f, "attribute {} defined twice", name),
             ValueError::TypeError(msg) => write!(f, "{}", msg),
         }
     }

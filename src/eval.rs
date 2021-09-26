@@ -25,28 +25,32 @@ type ExprResultGc = Result<Gc<Expr>, EvalError>;
 pub enum ExprSource {
     // We want to share child MapAttrs between the ExprSource
     // and the value map, so we use Gc.
-    Map {
-        inherits: Vec<ExprResultGc>,
+    AttrSet {
+        /// We use a list because the user might define the same top-level
+        /// attribute in multiple places via path syntax. For example:
+        /// ```nix
+        /// {
+        ///   xyz.foo = true;
+        ///   xyz.bar = false;
+        /// }
+        /// ```
         definitions: Vec<ExprResultGc>,
     },
-    // When we have a key-value pair like `foo = 123`, we put the
-    // key-value pair as the value in the map, then we evaluate that
-    // to just the value. This sounds odd, but it helps the LSP
-    // know the relationship between both instances of the `foo`
-    // identifier in code like `{ foo = 123; }.foo`, which could be
-    // helpful for refactoring and goto-definition functionality.
-    MapAttr {
-        path: Vec<ExprResultBox>,
-        value: ExprResultBox,
+    /// See the AttrSet handling in Expr::parse for more details.
+    /// Note that this syntax is the exact opposite of Expr::Select.
+    KeyValuePair {
+        key: ExprResultGc,
+        value: ExprResultGc,
     },
-    // We internally convert synatax like `let inherit (xyz) foo bar`
-    // to `let foo = xyz.foo; bar = xyz.bar`, so we want to be able
-    // to share the Select::from attribute across multiple Select
-    // instances.
+    /// Selection of an attribute from an AttrSet. This is used for
+    /// multiple syntaxes, such as `inherit (xyz) foo` and `xyz.foo`.
     Select {
+        /// We use Gc here because we need to share `from` across multiple
+        /// Expr nodes for syntax like `inherit (xyz) foo bar`
         from: ExprResultGc,
         index: ExprResultBox,
     },
+    /// Dynamic attribute, such as the curly braces in `foo.${toString (1+1)}`
     Dynamic {
         inner: ExprResultBox,
     },
@@ -232,11 +236,11 @@ impl Expr {
                     }
                 }))
             }
-            ExprSource::Map { .. } => Err(EvalError::Internal(InternalError::Unexpected(
+            ExprSource::AttrSet { .. } => Err(EvalError::Internal(InternalError::Unexpected(
                 "eval_uncached ExprSource::Map should be unreachable, ".to_string()
                     + "since the Expr::value should be initialized at creation",
             ))),
-            ExprSource::MapAttr { value, .. } => value.as_ref()?.eval(),
+            ExprSource::KeyValuePair { value, .. } => value.as_ref()?.eval(),
             ExprSource::Dynamic { inner } => inner.as_ref()?.eval(),
             ExprSource::Ident { name } => self
                 .scope
@@ -281,12 +285,10 @@ impl Expr {
             ExprSource::Implication { left, right } => vec![left, right],
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
-            ExprSource::Map {
-                inherits,
+            ExprSource::AttrSet {
                 definitions,
             } => {
                 let mut out = vec![];
-                out.extend(inherits);
                 out.extend(definitions);
                 // This looks similar to code at the end of the function, but
                 // we have Gc instead of Box, so we can't just return a vec
@@ -298,7 +300,18 @@ impl Expr {
                     .map(|x| x.as_ref())
                     .collect();
             }
-            ExprSource::MapAttr { path: _, value } => vec![value],
+            ExprSource::KeyValuePair { key, value } => {
+                let mut out = vec![];
+                if let Ok(x) = value {
+                    out.push(x.as_ref());
+                }
+                if let Ok(x) = key {
+                    if let ExprSource::Dynamic { inner: Ok(val) } = &x.source {
+                        out.push(val.as_ref());
+                    }
+                }
+                return out;
+            }
             ExprSource::Dynamic { inner } => vec![inner],
             ExprSource::Ident { .. } => vec![],
             ExprSource::Select { from, index } => {
@@ -330,13 +343,20 @@ impl Expr {
             Ident { name } => self.scope.get(&name),
             Select { from, index } => {
                 let idx = index.as_ref().ok()?.as_ident().ok()?;
-                Some(
-                    from.as_ref().ok()?
-                        .eval().ok()?
-                        .as_map().ok()?
-                        .get(&idx)?
-                        .clone(),
-                )
+                let out = from
+                    .as_ref()
+                    .ok()?
+                    .eval()
+                    .ok()?
+                    .as_map()
+                    .ok()?
+                    .get(&idx)?
+                    .clone();
+                if let ExprSource::KeyValuePair { ref key, .. } = out.source {
+                    key.clone().ok()
+                } else {
+                    Some(out)
+                }
             }
             _ => None,
         }
@@ -363,13 +383,33 @@ impl Expr {
 
 /// Used for merging sets during parsing. For example:
 /// { a.b = 1; a.c = 2; } => { a = { b = 1; c = 2; }; }
-pub fn merge_values(a: Gc<Expr>, b: &Expr) -> Result<Gc<Expr>, EvalError> {
-    let a = a.eval()?.as_map()?;
-    let b = b.eval()?.as_map()?;
+pub fn merge_set_literal(name: String, a: Gc<Expr>, b: Gc<Expr>) -> Result<Gc<Expr>, EvalError> {
+    // evaluate literal attr sets only, otherwise error
+    let eval_literal = |src: Gc<Expr>| {
+        let src = if let ExprSource::KeyValuePair { value, .. } = &src.source {
+            value.as_ref()?.clone()
+        } else {
+            src
+        };
+        if let ExprSource::AttrSet { .. } = &src.source {
+            src.eval()?.as_map()
+        } else {
+            // We cannot merge a literal with a non-literal. This error is
+            // caused by incorrect expressions such as:
+            // ```
+            // repl> let x = { y = 1; }; in { a = x; a.z = 2; }
+            // error: attribute 'a.z' at (string):1:33 already defined at (string):1:26
+            // ```
+            Err(EvalError::Value(ValueError::AttrAlreadyDefined(name.to_string())))
+        }
+    };
+
+    let a = eval_literal(a)?;
+    let b = eval_literal(b)?;
     let mut out = HashMap::new();
     for (key, val) in a.iter() {
         let tmp = match b.get(key) {
-            Some(x) => merge_values(x.clone(), &val)?,
+            Some(x) => merge_set_literal(format!("{}.{}", name, key), x.clone(), val.clone())?,
             None => val.clone(),
         };
         out.insert(key.clone(), tmp);
