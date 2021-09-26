@@ -241,7 +241,8 @@ impl Expr {
             ExprSource::Ident { name } => self
                 .scope
                 .get(name)
-                // We don't have everything implemented yet, so assume we're at fault
+                // We don't have everything implemented yet, so silently fail,
+                // assuming we're at fault
                 .ok_or(EvalError::Internal(InternalError::Unimplemented(format!(
                     "not found in scope: {}",
                     name
@@ -254,7 +255,8 @@ impl Expr {
                 let val = match map.get(&key) {
                     Some(x) => x,
                     None => {
-                        // We don't have everything implemented yet, so assume we're at fault
+                        // We don't have everything implemented yet, so silently fail,
+                        // assuming we're at fault
                         return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                             "missing key: {}",
                             key
