@@ -6,46 +6,86 @@ use crate::EvalError;
 use gc::{Finalize, Gc, GcCell, Trace};
 use rnix::TextRange;
 use std::borrow::Borrow;
+use std::collections::HashMap;
 
-type ExprResult = Result<Box<Expr>, EvalError>;
+// Expressions like BinOp have the only copy of their Expr children,
+// so they use ExprResultBox. Expressions like Map, which may have
+// contents copied in multiple places, need ExprResultGc.
+type ExprResultBox = Result<Box<Expr>, EvalError>;
+type ExprResultGc = Result<Gc<Expr>, EvalError>;
 
 /// Used to lazily calculate the value of a Expr. This should be
 /// tolerant of parsing and evaluation errors from child Exprs.
-#[derive(Debug, Clone, Trace, Finalize)]
+///
+/// We store everything that we want the user to inspect. For example,
+/// the source for an attribute key-value pair includes the key so the
+/// user can hover inside dynamic keys in code like
+/// `{ "${toString (1+1)}" = 2; }`.
+#[derive(Debug, Trace, Finalize)]
 pub enum ExprSource {
+    // We want to share child MapAttrs between the ExprSource
+    // and the value map, so we use Gc.
+    Map {
+        inherits: Vec<ExprResultGc>,
+        definitions: Vec<ExprResultGc>,
+    },
+    // When we have a key-value pair like `foo = 123`, we put the
+    // key-value pair as the value in the map, then we evaluate that
+    // to just the value. This sounds odd, but it helps the LSP
+    // know the relationship between both instances of the `foo`
+    // identifier in code like `{ foo = 123; }.foo`, which could be
+    // helpful for refactoring and goto-definition functionality.
+    MapAttr {
+        path: Vec<ExprResultBox>,
+        value: ExprResultBox,
+    },
+    // We internally convert synatax like `let inherit (xyz) foo bar`
+    // to `let foo = xyz.foo; bar = xyz.bar`, so we want to be able
+    // to share the Select::from attribute across multiple Select
+    // instances.
+    Select {
+        from: ExprResultGc,
+        index: ExprResultBox,
+    },
+    Dynamic {
+        inner: ExprResultBox,
+    },
+    Ident {
+        name: String,
+    },
     Literal {
         value: NixValue,
     },
     Paren {
-        inner: ExprResult,
+        inner: ExprResultBox,
     },
     BinOp {
         op: BinOpKind,
-        left: ExprResult,
-        right: ExprResult,
+        left: ExprResultBox,
+        right: ExprResultBox,
     },
     BoolAnd {
-        left: ExprResult,
-        right: ExprResult,
+        left: ExprResultBox,
+        right: ExprResultBox,
     },
     BoolOr {
-        left: ExprResult,
-        right: ExprResult,
+        left: ExprResultBox,
+        right: ExprResultBox,
     },
     Implication {
-        left: ExprResult,
-        right: ExprResult,
+        left: ExprResultBox,
+        right: ExprResultBox,
     },
     UnaryInvert {
-        value: ExprResult,
+        value: ExprResultBox,
     },
     UnaryNegate {
-        value: ExprResult,
+        value: ExprResultBox,
     },
 }
 
 /// Syntax node that has context and can be lazily evaluated.
-#[derive(Clone, Trace, Finalize)]
+#[derive(Trace, Finalize)]
 pub struct Expr {
     #[unsafe_ignore_trace]
     pub range: Option<TextRange>,
@@ -183,11 +223,44 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::Map { .. } => Err(EvalError::Internal(InternalError::Unexpected(
+                "eval_uncached ExprSource::Map should be unreachable, ".to_string()
+                    + "since the Expr::value should be initialized at creation",
+            ))),
+            ExprSource::MapAttr { value, .. } => value.as_ref()?.eval(),
+            ExprSource::Dynamic { inner } => inner.as_ref()?.eval(),
+            ExprSource::Ident { name } => self
+                .scope
+                .get(name)
+                // We don't have everything implemented yet, so assume we're at fault
+                .ok_or(EvalError::Internal(InternalError::Unimplemented(format!(
+                    "not found in scope: {}",
+                    name
+                ))))?
+                .eval(),
+            ExprSource::Select { from, index } => {
+                let key = index.as_ref()?.as_ident()?;
+                let tmp = from.as_ref()?.eval()?;
+                let map = tmp.as_map()?;
+                let val = match map.get(&key) {
+                    Some(x) => x,
+                    None => {
+                        // We don't have everything implemented yet, so assume we're at fault
+                        return Err(EvalError::Internal(InternalError::Unimplemented(format!(
+                            "missing key: {}",
+                            key
+                        ))));
+                    }
+                };
+                val.eval()
+            }
         }
     }
 
-    /// Used for recursing to find the Expr at a cursor position
-    pub fn children(&self) -> Vec<&Box<Expr>> {
+    /// Used for recursing to find the Expr at a cursor position.
+    /// Note that if children have overlapping `range`s, then the
+    /// first matching child will be used for tooling.
+    pub fn children(&self) -> Vec<&Expr> {
         match &self.source {
             ExprSource::Paren { inner } => vec![inner],
             ExprSource::Literal { value: _ } => vec![],
@@ -197,10 +270,111 @@ impl Expr {
             ExprSource::Implication { left, right } => vec![left, right],
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
+            ExprSource::Map {
+                inherits,
+                definitions,
+            } => {
+                let mut out = vec![];
+                out.extend(inherits);
+                out.extend(definitions);
+                // This looks similar to code at the end of the function, but
+                // we have Gc instead of Box, so we can't just return a vec
+                // like the rest of the `match` arms.
+                return out
+                    .into_iter()
+                    .map(|x| x.as_ref())
+                    .filter_map(Result::ok)
+                    .map(|x| x.as_ref())
+                    .collect();
+            }
+            ExprSource::MapAttr { path: _, value } => vec![value],
+            ExprSource::Dynamic { inner } => vec![inner],
+            ExprSource::Ident { .. } => vec![],
+            ExprSource::Select { from, index } => {
+                let mut out = vec![];
+                // For { .. }.x, we want hovering `x` to show the value.
+                // However, we still want syntax like { .. }."${toString (1+1)}"
+                // to allow interaction with the dynamic expression.
+                if let Ok(x) = index {
+                    if let ExprSource::Dynamic { inner: Ok(val) } = &x.source {
+                        out.push(val.as_ref());
+                    }
+                }
+                if let Ok(x) = from {
+                    out.push(x.as_ref());
+                }
+                return out;
+            }
         }
         .into_iter()
         .map(|x| x.as_ref())
         .filter_map(Result::ok)
+        .map(|x| x.as_ref())
         .collect()
     }
+
+    pub fn get_definition(&self) -> Option<Gc<Expr>> {
+        use ExprSource::*;
+        match &self.source {
+            Ident { name } => self.scope.get(&name),
+            Select { from, index } => {
+                let idx = index.as_ref().ok()?.as_ident().ok()?;
+                Some(
+                    from.as_ref().ok()?
+                        .eval().ok()?
+                        .as_map().ok()?
+                        .get(&idx)?
+                        .clone(),
+                )
+            }
+            _ => None,
+        }
+    }
+
+    /// Interpret the expression as an identifier. For example:
+    /// ```text
+    /// foo => "foo"
+    /// "foo" => "foo"
+    /// "${"foo"}" => "foo"
+    /// ```
+    pub fn as_ident(&self) -> Result<String, EvalError> {
+        use ExprSource::*;
+        match &self.source {
+            Ident { name } => Ok(name.clone()),
+            Dynamic { inner } => inner.as_ref()?.eval()?.as_str(),
+            Literal { value } => value.as_str(),
+            _ => Err(EvalError::Internal(InternalError::Unimplemented(
+                "unsupported identifier expression".to_string(),
+            ))),
+        }
+    }
+}
+
+/// Used for merging sets during parsing. For example:
+/// { a.b = 1; a.c = 2; } => { a = { b = 1; c = 2; }; }
+pub fn merge_values(a: Gc<Expr>, b: &Expr) -> Result<Gc<Expr>, EvalError> {
+    let a = a.eval()?.as_map()?;
+    let b = b.eval()?.as_map()?;
+    let mut out = HashMap::new();
+    for (key, val) in a.iter() {
+        let tmp = match b.get(key) {
+            Some(x) => merge_values(x.clone(), &val)?,
+            None => val.clone(),
+        };
+        out.insert(key.clone(), tmp);
+    }
+    for (key, val) in b.iter() {
+        if !a.contains_key(key) {
+            out.insert(key.clone(), val.clone());
+        }
+    }
+
+    Ok(Gc::new(Expr {
+        range: None,
+        value: GcCell::new(None),
+        source: ExprSource::Literal {
+            value: NixValue::Map(out),
+        },
+        scope: Gc::new(Scope::None),
+    }))
 }

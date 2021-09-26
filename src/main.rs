@@ -40,8 +40,7 @@ use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestI
 use lsp_types::{
     notification::{Notification as _, *},
     request::{Request as RequestTrait, *},
-    OneOf,
-    *,
+    OneOf, *,
 };
 use rnix::{
     parser::*,
@@ -60,6 +59,11 @@ use std::{
 };
 
 type Error = Box<dyn std::error::Error>;
+
+/// Enable showing internal errors via editor UI, such as via hover popups.
+/// This can be helpful for debugging, but we don't want the evaluator to
+/// spam users when confused, so this is disabled by default.
+const DEBUG_TOOLING: bool = false;
 
 fn main() {
     if let Err(err) = real_main() {
@@ -306,7 +310,8 @@ impl App {
                         start_idx + (range.end.character - range.start.character) as usize
                     } else {
                         // Note that .nth() is relative, not absolute
-                        newline_iter.nth(num_changed_lines as usize - 1).unwrap().0 + 1
+                        newline_iter.nth(num_changed_lines as usize - 1).unwrap().0
+                            + 1
                             + range.end.character as usize
                     };
 
@@ -333,32 +338,86 @@ impl App {
         Ok(())
     }
     fn lookup_definition(&mut self, params: TextDocumentPositionParams) -> Option<Location> {
-        let (current_ast, current_content, _) = self.files.get(&params.text_document.uri)?;
+        // First try fast static analysis before falling back to evaluation
+        self.lookup_definition_static(params.clone())
+            .or_else(|| self.lookup_definition_evaluation(params))
+    }
+    fn lookup_definition_static(&mut self, params: TextDocumentPositionParams) -> Option<Location> {
+        let uri = params.text_document.uri;
+        let (current_ast, current_content, _) = self.files.get(&uri)?;
         let offset = utils::lookup_pos(current_content, params.position)?;
-        let node = current_ast.node();
-        let (name, scope, _) = self.scope_for_ident(params.text_document.uri, &node, offset)?;
 
+        let node = current_ast.node();
+        let (name, scope, _) = self.scope_for_ident(uri.clone(), &node, offset)?;
         let var_e = scope.get(name.as_str())?;
-        if let Some(var) = &var_e.var {
-            let (_definition_ast, definition_content, _) = self.files.get(&var.file)?;
-            Some(Location {
-                uri: (*var.file).clone(),
-                range: utils::range(definition_content, var.key.text_range()),
-            })
-        } else {
-            None
+        let var = var_e.var.as_ref()?;
+
+        // Don't jump to the same place where we clicked
+        let range = var.key.text_range();
+        let start: usize = range.start().into();
+        let end: usize = range.end().into();
+        if start <= offset && offset < end {
+            return None
         }
+
+        let (_definition_ast, definition_content, _) = self.files.get(&var.file)?;
+        Some(Location {
+            uri: (*var.file).clone(),
+            range: utils::range(definition_content, range),
+        })
+    }
+    fn lookup_definition_evaluation(
+        &mut self,
+        params: TextDocumentPositionParams,
+    ) -> Option<Location> {
+        let uri = params.text_document.uri;
+        let (_, current_content, parsed_eval_expr) = self.files.get(&uri)?;
+        let offset = utils::lookup_pos(current_content, params.position)?;
+
+        let expr = climb_expr(parsed_eval_expr.as_ref().ok()?, offset);
+        let def = expr.get_definition()?;
+
+        // Don't jump to the same place where we clicked
+        let range = def.range?;
+        let start: usize = range.start().into();
+        let end: usize = range.end().into();
+        if start <= offset && offset < end {
+            return None
+        }
+
+        let def_path = def.scope.root_path()?;
+        let code = std::fs::read_to_string(&def_path).ok()?;
+        Some(Location {
+            uri: Url::parse(&format!("file://{}", def_path.to_string_lossy())).ok()?,
+            range: utils::range(&code, range),
+        })
     }
     fn hover(&self, params: HoverParams) -> Option<(Option<Range>, String)> {
         let pos_params = params.text_document_position_params;
         let (_, content, expr) = self.files.get(&pos_params.text_document.uri)?;
         let offset = utils::lookup_pos(content, pos_params.position)?;
-        let child_expr = climb_expr(expr.as_ref().ok()?, offset).clone();
+        let expr = match expr.as_ref() {
+            Ok(x) => x,
+            Err(e) => {
+                return if DEBUG_TOOLING {
+                    Some((None, format!("internal: {}", e)))
+                } else {
+                    None
+                }
+            }
+        };
+        let child_expr = climb_expr(expr, offset).clone();
         let range = utils::range(content, child_expr.range?);
         let msg = match child_expr.eval() {
             Ok(value) => value.format_markdown(),
             Err(EvalError::Value(ref err)) => format!("{}", err),
-            Err(EvalError::Internal(_)) => return None,
+            Err(EvalError::Internal(ref err)) => {
+                if DEBUG_TOOLING {
+                    format!("internal: {}", err)
+                } else {
+                    return None;
+                }
+            }
         };
         Some((Some(range), msg))
     }
@@ -510,7 +569,7 @@ impl App {
                     target: Some(url),
                     data: None,
                     range: lsp_range,
-                        tooltip: None,
+                    tooltip: None,
                 });
 
                 if let Some((range, _)) = links.front() {
@@ -559,8 +618,9 @@ impl App {
     }
 }
 
+/// See docs for `eval_mode` in Expr::children.
 fn climb_expr(here: &Expr, offset: usize) -> &Expr {
-    for child in here.children().clone() {
+    for child in here.children() {
         let range = match child.range {
             Some(x) => x,
             None => continue,
