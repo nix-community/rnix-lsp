@@ -69,7 +69,7 @@ impl std::fmt::Display for ValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             ValueError::DivisionByZero => write!(f, "division by zero"),
-            ValueError::AttrAlreadyDefined(name) => write!(f, "attribute {} defined twice", name),
+            ValueError::AttrAlreadyDefined(name) => write!(f, "attribute {} defined more than once", name),
             ValueError::TypeError(msg) => write!(f, "{}", msg),
         }
     }
