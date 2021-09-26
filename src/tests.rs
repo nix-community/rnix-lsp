@@ -232,3 +232,49 @@ fn attrs_rec() {
     let code = "rec { x = 4; y = x; }.y";
     assert_eq!(eval(code).as_int().unwrap(), 4);
 }
+
+#[test]
+fn attrs_rec_nested() {
+    let code = "rec { x = { b = 1; }; y = x; }.y.b";
+    assert_eq!(eval(code).as_int().unwrap(), 1);
+}
+
+#[test]
+fn attrs_merge() {
+    let code = "{ a = { b = 1; }; a.c = 2; }".to_string();
+    assert_eq!(eval(&format!("{}.a.b", code)).as_int().unwrap(), 1);
+    assert_eq!(eval(&format!("{}.a.c", code)).as_int().unwrap(), 2);
+}
+
+#[test]
+fn attrs_merge_conflict() {
+    let ast = rnix::parse("{ a = { b = 1; c = 3; }; a.c = 2; }");
+    let root = ast.root().inner().unwrap();
+    let path = std::env::current_dir().unwrap();
+    let parse_result = Expr::parse(root, Gc::new(Scope::Root(path)));
+    assert!(parse_result.is_err());
+}
+
+#[test]
+fn attrs_merge_conflict_rec() {
+    let ast = rnix::parse("rec { x = { b = 1; }; a = x; a.c = 2; }");
+    let root = ast.root().inner().unwrap();
+    let path = std::env::current_dir().unwrap();
+    let parse_result = Expr::parse(root, Gc::new(Scope::Root(path)));
+    assert!(parse_result.is_err());
+}
+
+#[test]
+fn attrs_merge_conflict_inherit() {
+    let ast = rnix::parse("{ inherit ({ a = { b = 1; }; }) a; a.c = 2; }");
+    let root = ast.root().inner().unwrap();
+    let path = std::env::current_dir().unwrap();
+    let parse_result = Expr::parse(root, Gc::new(Scope::Root(path)));
+    assert!(parse_result.is_err());
+}
+
+#[test]
+fn attrs_inherit_from() {
+    let code = "{ inherit ({ b = 1; }) b; }.b";
+    assert_eq!(eval(code).as_int().unwrap(), 1);
+}

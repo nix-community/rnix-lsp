@@ -398,9 +398,10 @@ impl App {
         let offset = utils::lookup_pos(content, pos_params.position)?;
         let expr = match expr.as_ref() {
             Ok(x) => x,
-            Err(e) => {
+            Err(EvalError::Value(ref err)) => return Some((None, format!("{}", err))),
+            Err(EvalError::Internal(ref err)) => {
                 return if DEBUG_TOOLING {
-                    Some((None, format!("internal: {}", e)))
+                    Some((None, format!("internal: {}", err)))
                 } else {
                     None
                 }
