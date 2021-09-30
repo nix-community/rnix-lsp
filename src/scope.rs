@@ -48,10 +48,10 @@ impl Scope {
     /// «primop» # found in Scope::Root, which we reach before Scope::With
     /// ```
     pub fn get(&self, name: &str) -> Option<Gc<Expr>> {
-        self.get_normal(name) // we haven't yet implemented fallback to a future get_with method
+        self.get_let(name) // we haven't yet implemented fallback to a future get_with method
     }
 
-    pub fn get_normal(&self, name: &str) -> Option<Gc<Expr>> {
+    pub fn get_let(&self, name: &str) -> Option<Gc<Expr>> {
         match self {
             Scope::None | Scope::Root(_) => Some(Gc::new(Expr {
                 range: None,
@@ -69,7 +69,7 @@ impl Scope {
             })),
             Scope::Let { parent, contents } => match contents.borrow().get(name) {
                 Some(x) => Some(x.clone()),
-                None => parent.get_normal(name),
+                None => parent.get_let(name),
             },
         }
     }
