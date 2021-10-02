@@ -1,4 +1,4 @@
-# rnix-lsp ![Crates.io](https://img.shields.io/crates/v/rnix-lsp)
+# rnix-lsp [![Crates.io](https://img.shields.io/crates/v/rnix-lsp)](https://crates.io/crates/rnix-lsp) [![Chat on Matrix](https://matrix.to/img/matrix-badge.svg)](https://matrix.to/#/#rnix-lsp:matrix.org)
 
 A syntax-checking language server using
 [rnix](https://github.com/nix-community/rnix-parser).
