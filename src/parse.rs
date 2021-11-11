@@ -125,7 +125,7 @@ impl Expr {
                         let here_start = element.as_ref()?.range.ok_or(ERR_PARSING)?.start();
 
                         // Create an invisible attr set
-                        let tmp_map = NixValue::Map(HashMap::from_iter([(
+                        let tmp_map = NixValue::Map(HashMap::from_iter(vec![(
                             cursor_key_name,
                             cursor_value.clone(),
                         )]));
