@@ -22,6 +22,8 @@ Turn on logging with `RUST_LOG=trace`, and redirect stderr to a file.
 bash -c "env RUST_LOG=trace rnix-lsp 2> /tmp/rnix-lsp.log"
 ```
 
+Support for **Mac OS** is not guaranteed (see [PR #61](https://github.com/nix-community/rnix-lsp/pull/61)).
+
 ## Install
 
 ```
