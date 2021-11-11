@@ -1,4 +1,4 @@
-# rnix-lsp [![Crates.io](https://img.shields.io/crates/v/rnix-lsp)](https://crates.io/crates/rnix-lsp) [![Chat on Matrix](https://matrix.to/img/matrix-badge.svg)](https://matrix.to/#/#rnix-lsp:matrix.org)
+# rnix-lsp [![Crates.io](https://img.shields.io/crates/v/rnix-lsp)](https://crates.io/crates/rnix-lsp) [![Chat on Matrix](https://matrix.to/img/matrix-badge.svg)](https://matrix.to/#/#rnix-lsp:matrix.org) [![Build status](https://github.com/nix-community/rnix-lsp/actions/workflows/test.yml/badge.svg)](https://github.com/nix-community/rnix-lsp/actions/workflows/test.yml)
 
 A syntax-checking language server using
 [rnix](https://github.com/nix-community/rnix-parser).
@@ -21,6 +21,8 @@ Turn on logging with `RUST_LOG=trace`, and redirect stderr to a file.
 ```sh
 bash -c "env RUST_LOG=trace rnix-lsp 2> /tmp/rnix-lsp.log"
 ```
+
+Support for **Mac OS** is not guaranteed (see [PR #61](https://github.com/nix-community/rnix-lsp/pull/61)).
 
 ## Install
 
