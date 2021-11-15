@@ -361,7 +361,7 @@ mod tests {
         let f = app.files.get(&Url::parse("file:///code/foo.nix").unwrap());
         assert!(f.is_some());
 
-        let parsed = f.unwrap().clone().2.unwrap();
+        let parsed = f.as_ref().unwrap().2.as_ref().unwrap();
         assert_eq!(1, parsed.children().len());
     }
 

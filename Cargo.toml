@@ -28,3 +28,13 @@ serde_json = "1.0.44"
 
 [dev-dependencies]
 stoppable_thread = "0.2"
+
+[features]
+
+# Set this to ["verbose"] when debugging
+default = []
+
+# Enable showing internal errors via editor UI, such as via hover popups.
+# This can be helpful for debugging, but we don't want the evaluator to
+# spam users when confused, so this is disabled by default.
+verbose = []
