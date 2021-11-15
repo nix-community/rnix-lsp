@@ -60,11 +60,6 @@ use std::{
 
 type Error = Box<dyn std::error::Error>;
 
-/// Enable showing internal errors via editor UI, such as via hover popups.
-/// This can be helpful for debugging, but we don't want the evaluator to
-/// spam users when confused, so this is disabled by default.
-const DEBUG_TOOLING: bool = false;
-
 fn main() {
     if let Err(err) = real_main() {
         error!("Error: {} ({:?})", err, err);
@@ -400,7 +395,7 @@ impl App {
             Ok(x) => x,
             Err(EvalError::Value(ref err)) => return Some((None, format!("{}", err))),
             Err(EvalError::Internal(ref err)) => {
-                return if DEBUG_TOOLING {
+                return if cfg!(feature = "verbose") {
                     Some((None, format!("internal: {}", err)))
                 } else {
                     None
@@ -413,7 +408,7 @@ impl App {
             Ok(value) => value.format_markdown(),
             Err(EvalError::Value(ref err)) => format!("{}", err),
             Err(EvalError::Internal(ref err)) => {
-                if DEBUG_TOOLING {
+                if cfg!(feature = "verbose") {
                     format!("internal: {}", err)
                 } else {
                     return None;
