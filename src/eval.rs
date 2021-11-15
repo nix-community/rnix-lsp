@@ -400,6 +400,8 @@ pub fn merge_set_literal(name: String, a: Gc<Expr>, b: Gc<Expr>) -> Result<Gc<Ex
             // repl> let x = { y = 1; }; in { a = x; a.z = 2; }
             // error: attribute 'a.z' at (string):1:33 already defined at (string):1:26
             // ```
+            // The above would be caught because `x` is an ExprSource::Ident (as
+            // opposed to being an ExprSource::AttrSet literal).
             Err(EvalError::Value(ValueError::AttrAlreadyDefined(name.to_string())))
         }
     };
