@@ -43,12 +43,23 @@ impl Expr {
     /// rnix::SyntaxNode isn't recognized, we don't get tooling for its children.
     pub fn parse(node: SyntaxNode, scope: Gc<Scope>) -> Result<Self, EvalError> {
         let range = Some(node.text_range());
-        let recurse_box = |node| Expr::parse(node, scope.clone()).map(|x| Box::new(x));
-        let recurse_gc = |node| Expr::parse(node, scope.clone()).map(|x| Gc::new(x));
+        // We don't want to use ? because that would make a parent fail
+        // to parse due to a child error. So, we have these helper functions
+        // to handle error wrapping etc.
+        let recurse_box = |node_res: Result<SyntaxNode, _>| {
+            node_res
+                .and_then(|node| Expr::parse(node, scope.clone()))
+                .map(|x| Box::new(x))
+        };
+        let recurse_gc = |node_res: Result<SyntaxNode, _>| {
+            node_res
+                .and_then(|node| Expr::parse(node, scope.clone()))
+                .map(|x| Gc::new(x))
+        };
         let source = match ParsedType::try_from(node.clone()).map_err(|_| ERR_PARSING)? {
             ParsedType::Select(select) => ExprSource::Select {
-                from: recurse_gc(select.set().ok_or(ERR_PARSING)?),
-                index: recurse_box(select.index().ok_or(ERR_PARSING)?),
+                from: recurse_gc(select.set().ok_or(ERR_PARSING)),
+                index: recurse_box(select.index().ok_or(ERR_PARSING)),
             },
             ParsedType::AttrSet(set) => {
                 let is_recursive = set.recursive();
@@ -254,16 +265,13 @@ impl Expr {
                     scope: new_scope,
                 });
             }
-            ParsedType::Paren(paren) => {
-                let inner = paren.inner().ok_or(ERR_PARSING)?;
-                ExprSource::Paren {
-                    inner: recurse_box(inner),
-                }
-            }
+            ParsedType::Paren(paren) => ExprSource::Paren {
+                inner: recurse_box(paren.inner().ok_or(ERR_PARSING)),
+            },
             ParsedType::BinOp(binop) => {
                 use rnix::types::BinOpKind::*;
-                let left = recurse_box(binop.lhs().ok_or(ERR_PARSING)?);
-                let right = recurse_box(binop.rhs().ok_or(ERR_PARSING)?);
+                let left = recurse_box(binop.lhs().ok_or(ERR_PARSING));
+                let right = recurse_box(binop.rhs().ok_or(ERR_PARSING));
                 macro_rules! binop_source {
                     ( $op:expr ) => {
                         ExprSource::BinOp {
@@ -300,10 +308,10 @@ impl Expr {
                 use rnix::types::UnaryOpKind;
                 match unary.operator() {
                     UnaryOpKind::Invert => ExprSource::UnaryInvert {
-                        value: recurse_box(unary.value().ok_or(ERR_PARSING)?),
+                        value: recurse_box(unary.value().ok_or(ERR_PARSING)),
                     },
                     UnaryOpKind::Negate => ExprSource::UnaryNegate {
-                        value: recurse_box(unary.value().ok_or(ERR_PARSING)?),
+                        value: recurse_box(unary.value().ok_or(ERR_PARSING)),
                     },
                 }
             }
@@ -311,7 +319,7 @@ impl Expr {
                 name: ident.as_str().to_string(),
             },
             ParsedType::Dynamic(dynamic) => ExprSource::Dynamic {
-                inner: recurse_box(dynamic.inner().ok_or(ERR_PARSING)?),
+                inner: recurse_box(dynamic.inner().ok_or(ERR_PARSING)),
             },
             ParsedType::Value(literal) => {
                 use rnix::value::Value::*;

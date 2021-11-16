@@ -74,6 +74,19 @@ impl Scope {
         }
     }
 
+    /// List all variable names in a given scope
+    pub fn list(&self) -> Vec<String> {
+        match self {
+            Scope::None => vec![],
+            Scope::Root(..) => vec![],
+            Scope::Let { parent, contents } => {
+                let mut out: Vec<String> = contents.borrow().keys().cloned().collect();
+                out.extend(parent.list());
+                out
+            }
+        }
+    }
+
     pub fn root_path(&self) -> Option<PathBuf> {
         match &self {
             Scope::None => None,

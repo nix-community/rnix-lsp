@@ -38,3 +38,7 @@ default = []
 # This can be helpful for debugging, but we don't want the evaluator to
 # spam users when confused, so this is disabled by default.
 verbose = []
+
+# # Helpful for trying different rnix-parser versions
+# [patch.crates-io]
+# rnix = { path = "../rnix-parser" }

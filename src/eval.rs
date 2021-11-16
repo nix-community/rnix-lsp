@@ -4,7 +4,7 @@ use crate::scope::*;
 use crate::value::*;
 use crate::EvalError;
 use gc::{Finalize, Gc, GcCell, Trace};
-use rnix::TextRange;
+use rnix::{TextRange, TextSize};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 
@@ -360,6 +360,34 @@ impl Expr {
             }
             _ => None,
         }
+    }
+
+    /// Returns:
+    /// - String: the characters already typed that we want to complete
+    /// - Vec<String>: possible completions
+    /// - TextRange: the range of text that we'd replace
+    pub fn completions(&self) -> Option<(String, Vec<String>, TextRange)> {
+        match &self.source {
+            ExprSource::Ident { name } => Some((name.clone(), self.scope.list(), self.range?)),
+            ExprSource::Select { from, index } => {
+                // We can't autocomplete if we don't know any possible values
+                let from = from.as_ref().ok()?;
+                let keys = from.get_keys().unwrap_or_default();
+                // Try using the index range, otherwise just insert after
+                // the period following the `from` child.
+                if let Ok(index) = index.as_ref() {
+                    Some((index.as_ident().ok()?, keys, index.range?))
+                } else {
+                    let range = from.range?.end() + TextSize::from(1);
+                    Some(("".to_string(), keys, TextRange::new(range, range)))
+                }
+            }
+            _ => Some(("".to_string(), self.scope.list(), self.range?)),
+        }
+    }
+
+    pub fn get_keys(&self) -> Result<Vec<String>, EvalError> {
+        Ok(self.eval()?.as_map()?.keys().cloned().collect())
     }
 
     /// Interpret the expression as an identifier. For example:

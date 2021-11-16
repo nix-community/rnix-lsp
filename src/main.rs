@@ -85,6 +85,7 @@ fn real_main() -> Result<(), Error> {
             },
         )),
         completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![".".to_string()]),
             ..CompletionOptions::default()
         }),
         definition_provider: Some(OneOf::Left(true)),
@@ -419,36 +420,67 @@ impl App {
     }
     #[allow(clippy::shadow_unrelated)] // false positive
     fn completions(&mut self, params: &TextDocumentPositionParams) -> Option<Vec<CompletionItem>> {
-        let (ast, content, _) = self.files.get(&params.text_document.uri)?;
-        let offset = utils::lookup_pos(content, params.position)?;
+        let mut output = HashMap::new();
 
-        let node = ast.node();
-        let (node, scope, name) =
-            self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
+        let (ast, content, file_expr) = self.files.get(&params.text_document.uri)?;
+        let offset = utils::lookup_pos(content, params.position).unwrap();
 
-        // Re-open, because scope_for_ident may mutably borrow
-        let (_, content, _) = self.files.get(&params.text_document.uri)?;
-
-        let mut completions = Vec::new();
-        for (var, data) in scope {
-            if var.starts_with(&name.as_str()) {
-                let det = data.render_detail();
-                completions.push(CompletionItem {
-                    label: var.clone(),
-                    documentation: data
-                        .documentation
-                        .map(|x| lsp_types::Documentation::String(x)),
-                    deprecated: Some(data.deprecated),
-                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                        range: utils::range(content, node.node().text_range()),
-                        new_text: var.clone(),
-                    })),
-                    detail: Some(det),
-                    ..CompletionItem::default()
-                });
+        if let Ok(file_expr) = file_expr {
+            // We use saturating_sub because the cursor is in between
+            // characters rather than selecting characters, so we want
+            // to prefer looking at tokens end at the cursor rather than
+            // tokens that start at the cursor.
+            let expr = climb_expr(&file_expr, offset.saturating_sub(1)).clone();
+            if let Some((prefix, names, range)) = expr.completions() {
+                for name in names {
+                    if name.starts_with(&prefix) {
+                        output.insert(
+                            name.clone(),
+                            CompletionItem {
+                                label: name.clone(),
+                                text_edit: Some(lsp_types::CompletionTextEdit::Edit(TextEdit {
+                                    range: utils::range(content, range),
+                                    new_text: name,
+                                })),
+                                kind: Some(CompletionItemKind::Variable),
+                                ..CompletionItem::default()
+                            },
+                        );
+                    }
+                }
             }
         }
-        Some(completions)
+
+        let node = ast.node();
+        let static_res = self.scope_for_ident(params.text_document.uri.clone(), &node, offset);
+        if let Some((node, scope, name)) = static_res {
+            // Re-open, because scope_for_ident may mutably borrow
+            let (_, content, _) = self.files.get(&params.text_document.uri)?;
+            let range = utils::range(content, node.node().text_range());
+
+            for (var, data) in scope {
+                if var.starts_with(&name.as_str()) {
+                    let det = data.render_detail();
+                    output.insert(
+                        var.clone(),
+                        CompletionItem {
+                            label: var.clone(),
+                            documentation: data
+                                .documentation
+                                .map(|x| lsp_types::Documentation::String(x)),
+                            deprecated: Some(data.deprecated),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                range,
+                                new_text: var.clone(),
+                            })),
+                            detail: Some(det),
+                            ..CompletionItem::default()
+                        },
+                    );
+                }
+            }
+        }
+        Some(output.into_values().collect())
     }
     fn rename(&mut self, params: RenameParams) -> Option<HashMap<Url, Vec<TextEdit>>> {
         struct Rename<'a> {
