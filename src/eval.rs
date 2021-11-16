@@ -23,6 +23,11 @@ type ExprResultGc = Result<Gc<Expr>, EvalError>;
 /// `{ "${toString (1+1)}" = 2; }`.
 #[derive(Debug, Trace, Finalize)]
 pub enum ExprSource {
+    // TODO: Add the lambda argument here. For now we have ExprSource::Lambda
+    // half-implemented only to enable tooling within lambda bodies.
+    Lambda {
+        body: ExprResultBox,
+    },
     // We want to share child MapAttrs between the ExprSource
     // and the value map, so we use Gc.
     AttrSet {
@@ -134,6 +139,9 @@ impl Expr {
 
     fn eval_uncached(&self) -> Result<Gc<NixValue>, EvalError> {
         match &self.source {
+            ExprSource::Lambda { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "lambda application".into(),
+            ))),
             ExprSource::Paren { inner } => inner.as_ref()?.eval(),
             ExprSource::Literal { value } => Ok(Gc::new(value.clone())),
             ExprSource::BoolAnd { left, right } => {
@@ -277,6 +285,13 @@ impl Expr {
     /// first matching child will be used for tooling.
     pub fn children(&self) -> Vec<&Expr> {
         match &self.source {
+            ExprSource::Lambda { body } => {
+                let mut out = vec![];
+                if let Ok(x) = body {
+                    out.push(x.as_ref());
+                }
+                return out;
+            }
             ExprSource::Paren { inner } => vec![inner],
             ExprSource::Literal { value: _ } => vec![],
             ExprSource::BinOp { op: _, left, right } => vec![left, right],

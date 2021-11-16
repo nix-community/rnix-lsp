@@ -46,6 +46,9 @@ impl Expr {
         let recurse_box = |node| Expr::parse(node, scope.clone()).map(|x| Box::new(x));
         let recurse_gc = |node| Expr::parse(node, scope.clone()).map(|x| Gc::new(x));
         let source = match ParsedType::try_from(node.clone()).map_err(|_| ERR_PARSING)? {
+            ParsedType::Lambda(lambda) => ExprSource::Lambda {
+                body: recurse_box(lambda.body().ok_or(ERR_PARSING)?),
+            },
             ParsedType::Select(select) => ExprSource::Select {
                 from: recurse_gc(select.set().ok_or(ERR_PARSING)?),
                 index: recurse_box(select.index().ok_or(ERR_PARSING)?),
