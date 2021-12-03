@@ -314,8 +314,8 @@ mod tests {
         assert!(val.1.contains_key("abort"));
         assert!(val.1.contains_key("trace"));
 
-        // fails on Mac OS? https://github.com/nix-community/rnix-lsp/issues/60
-        // assert!(val.1.get("abort").unwrap().documentation.is_some());
+        #[cfg_attr(target_os = "macos", ignore)]
+        assert!(val.1.get("abort").unwrap().documentation.is_some());
     }
 
     #[test]
