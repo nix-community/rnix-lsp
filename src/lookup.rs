@@ -315,9 +315,11 @@ mod tests {
         assert!(val.1.contains_key("trace"));
     }
 
+    // ignore this test on Mac OS
+    // https://github.com/nix-community/rnix-lsp/issues/60
     #[test]
     #[cfg_attr(target_os = "macos", ignore)]
-    fn test_provide_builtins_mac() {
+    fn test_provide_builtins_non_mac() {
         let root = rnix::parse("builtins.map (y: y)").node();
         let mut app = App {
             files: HashMap::new(),
