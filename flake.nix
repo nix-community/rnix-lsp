@@ -2,7 +2,7 @@
   description = "A work-in-progress language server for Nix, with syntax checking and basic completion";
 
   inputs = {
-    naersk.url = "github:nmattia/naersk";
+    naersk.url = "github:nix-community/naersk";
     utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-21.05";
     naersk.inputs.nixpkgs.follows = "nixpkgs";
