@@ -18,9 +18,12 @@ libc = "0.2.66"
 log = "0.4.8"
 lsp-server = "0.5.2"
 lsp-types = { version = "0.89.2", features = ["proposed"] }
-nixpkgs-fmt = "1.2.0"
 regex = "1"
-rnix = "0.9.1"
+rnix = "0.10.1"
 rowan = "0.12.6"
 serde = "1.0.104"
 serde_json = "1.0.44"
+
+[dependencies.nixpkgs-fmt]
+git = "git://github.com/ma27/nixpkgs-fmt"
+tag = "v1.2.0-rnix-0.10"

@@ -330,8 +330,7 @@ dependencies = [
 [[package]]
 name = "nixpkgs-fmt"
 version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a82272a0eee2fef69a1af311f01ff84edac1f4f1680095b9a86f409cf00bd00"
+source = "git+git://github.com/ma27/nixpkgs-fmt?tag=v1.2.0-rnix-0.10#2b4e9a3ab49ce9fd3e0e09f3b32a2bfb92b395f6"
 dependencies = [
  "clap",
  "crossbeam-channel 0.3.9",
@@ -419,9 +418,9 @@ checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
 name = "rnix"
-version = "0.9.1"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "294becb48f58c496d96c10a12df290266204ca75c9799be4d04222bfaebb6a37"
+checksum = "065c5eac8e8f7e7b0e7227bdc46e2d8dd7d69fff7a9a2734e21f686bbcb9b2c9"
 dependencies = [
  "cbitset",
  "rowan",
