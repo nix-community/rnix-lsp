@@ -313,6 +313,26 @@ mod tests {
         let val = suggestions.unwrap();
         assert!(val.1.contains_key("abort"));
         assert!(val.1.contains_key("trace"));
+    }
+
+    // ignore this test on Mac OS
+    // https://github.com/nix-community/rnix-lsp/issues/60
+    #[test]
+    #[cfg_attr(target_os = "macos", ignore)]
+    fn test_provide_builtins_non_mac() {
+        let root = rnix::parse("builtins.map (y: y)").node();
+        let mut app = App {
+            files: HashMap::new(),
+            conn: Connection::memory().0,
+        };
+
+        let suggestions = app.scope_for_ident(
+            Url::parse("file:///default.nix").unwrap(),
+            &root,
+            9
+        );
+
+        let val = suggestions.unwrap();
 
         assert!(val.1.get("abort").unwrap().documentation.is_some());
     }
