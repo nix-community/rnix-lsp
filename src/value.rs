@@ -120,7 +120,7 @@ impl Display for NixValue {
                 if map.keys().len() > MAX_DISPLAY_KEYS {
                     body.push_str(", ...");
                 }
-                write!(f, "\n{{ {} }}", body)
+                write!(f, "{{ {} }}", body)
             }
         }
     }
