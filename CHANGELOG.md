@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Nothing here, yet.
 
+## [v0.2.3] - 2021-12-24
+
+### Changed
+
+* Fixed `nixpkgs-fmt` crate to keep `rnix-lsp` publishable (from [@Ma27](https://github.com/Ma27)).
+
 ## [v0.2.2] - 2021-12-24
 
 ### Added
@@ -68,7 +74,8 @@ to dedicate this release to them to make sure they're not forgotten.
 
 * Initial release.
 
-[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.2...master
+[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.3...master
+[v0.2.3]: https://github.com/nix-community/rnix-lsp/compare/v0.2.2...v0.2.3
 [v0.2.2]: https://github.com/nix-community/rnix-lsp/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/nix-community/rnix-lsp/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/nix-community/rnix-lsp/compare/v0.1.0...v0.2.0
