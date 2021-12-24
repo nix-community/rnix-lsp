@@ -24,10 +24,7 @@ rnix = "0.10.1"
 rowan = "0.12.6"
 serde = "1.0.104"
 serde_json = "1.0.44"
-
-[dependencies.nixpkgs-fmt]
-git = "git://github.com/ma27/nixpkgs-fmt"
-tag = "v1.2.0-rnix-0.10"
+nixpkgs-fmt-rnix = "1.2.0"
 
 [dev-dependencies]
 stoppable_thread = "0.2"
