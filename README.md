@@ -27,7 +27,7 @@ Support for **Mac OS** is not guaranteed (see [PR #61](https://github.com/nix-co
 ## Install
 
 ```
-$ nix-env -i -f https://github.com/nix-community/rnix-lsp/archive/master.tar.gz
+nix-env -i -f https://github.com/nix-community/rnix-lsp/archive/master.tar.gz
 ```
 
 ## Integrate with your editor
