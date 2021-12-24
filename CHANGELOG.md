@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Nothing here, yet.
 
+## [v0.2.2] - 2021-12-24
+
+### Added
+
+* Updated [`rnix`](https://github.com/nix-community/rnix-parser) to `v0.10.1` for support
+  of new Nix 2.4 language features (from [@Ma27](https://github.com/Ma27/)).
+* Disabled a test that's flaky on Darwin to fix the darwin build (from [@peterbecich](https://github.com/peterbecich)).
+
 ## [v0.2.1] - 2021-09-23
 
 ### Changed
@@ -60,7 +68,8 @@ to dedicate this release to them to make sure they're not forgotten.
 
 * Initial release.
 
-[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.1...master
+[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.2...master
+[v0.2.2]: https://github.com/nix-community/rnix-lsp/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/nix-community/rnix-lsp/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/nix-community/rnix-lsp/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/nix-community/rnix-lsp/compare/b3586e567c1e558988416676680833294699aeaa...v0.1.0
