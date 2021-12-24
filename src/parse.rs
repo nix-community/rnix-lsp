@@ -273,7 +273,7 @@ impl Expr {
                         }
                     };
                 }
-                match binop.operator() {
+                match binop.operator().unwrap() {
                     And => ExprSource::BoolAnd { left, right },
                     Or => ExprSource::BoolOr { left, right },
                     Implication => ExprSource::Implication { left, right },
