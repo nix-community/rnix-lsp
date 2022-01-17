@@ -286,6 +286,10 @@ mod tests {
     }
 
     #[test]
+    // FIXME re-activate it again for macos as soon as
+    // https://github.com/NixOS/nix/issues/5884 / https://github.com/nix-community/rnix-lsp/issues/75
+    // is properly resolved
+    #[cfg_attr(target_os = "macos", ignore)]
     fn test_provide_builtins() {
         let root = rnix::parse("builtins.map (y: y)").node();
         let mut app = App {
