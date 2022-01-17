@@ -4,7 +4,7 @@
   inputs = {
     naersk.url = "github:nix-community/naersk";
     utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-21.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-21.11";
     naersk.inputs.nixpkgs.follows = "nixpkgs";
   };
 
@@ -19,7 +19,7 @@
           pname = "rnix-lsp";
           root = ./.;
           doCheck = true;
-          checkInputs = [ pkgs.nixUnstable ];
+          checkInputs = [ pkgs.nix_2_4 ];
         };
         defaultPackage = packages.rnix-lsp;
 
