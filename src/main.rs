@@ -352,7 +352,7 @@ impl App {
         let start: usize = range.start().into();
         let end: usize = range.end().into();
         if start <= offset && offset < end {
-            return None
+            return None;
         }
 
         let (_definition_ast, definition_content, _) = self.files.get(&var.file)?;
@@ -377,7 +377,7 @@ impl App {
         let start: usize = range.start().into();
         let end: usize = range.end().into();
         if start <= offset && offset < end {
-            return None
+            return None;
         }
 
         let def_path = def.scope.root_path()?;

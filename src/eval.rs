@@ -119,7 +119,7 @@ impl Expr {
                 // from an .eval(), which is probably infinite recursion.
                 return Err(EvalError::Internal(InternalError::Unimplemented(
                     "infinite recursion".to_string(),
-                )))
+                )));
             }
         };
         if let Some(ref value) = *value_borrow {
@@ -285,9 +285,7 @@ impl Expr {
             ExprSource::Implication { left, right } => vec![left, right],
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
-            ExprSource::AttrSet {
-                definitions,
-            } => {
+            ExprSource::AttrSet { definitions } => {
                 let mut out = vec![];
                 out.extend(definitions);
                 // This looks similar to code at the end of the function, but
@@ -402,7 +400,9 @@ pub fn merge_set_literal(name: String, a: Gc<Expr>, b: Gc<Expr>) -> Result<Gc<Ex
             // ```
             // The above would be caught because `x` is an ExprSource::Ident (as
             // opposed to being an ExprSource::AttrSet literal).
-            Err(EvalError::Value(ValueError::AttrAlreadyDefined(name.to_string())))
+            Err(EvalError::Value(ValueError::AttrAlreadyDefined(
+                name.to_string(),
+            )))
         }
     };
 

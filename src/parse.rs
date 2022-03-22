@@ -211,7 +211,9 @@ impl Expr {
                             let name = name.to_string();
                             match value_map.entry(name.clone()) {
                                 Entry::Occupied(_) => {
-                                    return Err(EvalError::Value(ValueError::AttrAlreadyDefined(name)))
+                                    return Err(EvalError::Value(ValueError::AttrAlreadyDefined(
+                                        name,
+                                    )))
                                 }
                                 Entry::Vacant(entry) => entry.insert(attr),
                             };
@@ -232,7 +234,9 @@ impl Expr {
                             let name = name.to_string();
                             match value_map.entry(name.clone()) {
                                 Entry::Occupied(_) => {
-                                    return Err(EvalError::Value(ValueError::AttrAlreadyDefined(name)))
+                                    return Err(EvalError::Value(ValueError::AttrAlreadyDefined(
+                                        name,
+                                    )))
                                 }
                                 Entry::Vacant(entry) => entry.insert(attr),
                             };
