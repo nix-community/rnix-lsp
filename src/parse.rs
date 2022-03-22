@@ -43,9 +43,9 @@ impl Expr {
     /// rnix::SyntaxNode isn't recognized, we don't get tooling for its children.
     pub fn parse(node: SyntaxNode, scope: Gc<Scope>) -> Result<Self, EvalError> {
         let range = Some(node.text_range());
-        let recurse_box = |node| Expr::parse(node, scope.clone()).map(|x| Box::new(x));
-        let recurse_gc = |node| Expr::parse(node, scope.clone()).map(|x| Gc::new(x));
-        let source = match ParsedType::try_from(node.clone()).map_err(|_| ERR_PARSING)? {
+        let recurse_box = |node| Expr::parse(node, scope.clone()).map(Box::new);
+        let recurse_gc = |node| Expr::parse(node, scope.clone()).map(Gc::new);
+        let source = match ParsedType::try_from(node).map_err(|_| ERR_PARSING)? {
             ParsedType::Select(select) => ExprSource::Select {
                 from: recurse_gc(select.set().ok_or(ERR_PARSING)?),
                 index: recurse_box(select.index().ok_or(ERR_PARSING)?),
@@ -146,7 +146,7 @@ impl Expr {
                                 key: element,
                                 value: Ok(tmp_attr_set),
                             },
-                            range: Some(cursor_range.clone()),
+                            range: Some(cursor_range),
                             scope: new_scope.clone(),
                         });
                     }

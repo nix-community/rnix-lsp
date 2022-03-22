@@ -7,7 +7,7 @@ use lsp_types::Url;
 use rnix::{types::*, value::Value as ParsedValue, SyntaxNode};
 use std::{
     collections::{hash_map::Entry, HashMap},
-    path::PathBuf,
+    path::Path,
     rc::Rc,
 };
 
@@ -18,7 +18,6 @@ use lazy_static::lazy_static;
 
 use crate::scope::Scope;
 use gc::Gc;
-use regex;
 use std::{process, str};
 
 lazy_static! {
@@ -83,7 +82,7 @@ impl LSPDetails {
     pub fn render_detail(&self) -> String {
         match &self.params {
             None => self.datatype.to_string(),
-            Some(params) => format!("{}: {} -> Result", self.datatype.to_string(), params),
+            Some(params) => format!("{}: {} -> Result", self.datatype, params),
         }
     }
 }
@@ -96,11 +95,11 @@ impl App {
         offset: usize,
     ) -> Option<(Ident, HashMap<String, LSPDetails>, String)> {
         let mut file = Rc::new(file);
-        let info = utils::ident_at(&root, offset)?;
+        let info = utils::ident_at(root, offset)?;
         let ident = info.ident;
         let mut entries = utils::scope_for(&file, ident.node().clone())?
             .into_iter()
-            .map(|(x, var)| (x.to_owned(), LSPDetails::from_scope(var.datatype, var)))
+            .map(|(x, var)| (x, LSPDetails::from_scope(var.datatype, var)))
             .collect::<HashMap<_, _>>();
         for var in info.path {
             if !entries.contains_key(&var) && var == "builtins" {
@@ -112,7 +111,7 @@ impl App {
                     entries = self
                         .scope_from_node(&mut file, node)?
                         .into_iter()
-                        .map(|(x, var)| (x.to_owned(), LSPDetails::from_scope(var.datatype, var)))
+                        .map(|(x, var)| (x, LSPDetails::from_scope(var.datatype, var)))
                         .collect::<HashMap<_, _>>();
                 }
             }
@@ -154,7 +153,7 @@ impl App {
 
             // TODO use anchor
             *file = Rc::new(file.join(&path).ok()?);
-            let path = utils::uri_path(&file)?;
+            let path = utils::uri_path(file)?;
             node = match self.files.entry((**file).clone()) {
                 Entry::Occupied(entry) => {
                     let (ast, _code, _) = entry.get();
@@ -173,13 +172,13 @@ impl App {
         }
 
         if let Some(set) = AttrSet::cast(node) {
-            utils::populate(&file, &mut scope, &set, Datatype::Attribute);
+            utils::populate(file, &mut scope, &set, Datatype::Attribute);
         }
         Some(scope)
     }
 
     #[cfg(not(test))]
-    fn read_from_str(p: &PathBuf) -> Option<String> {
+    fn read_from_str(p: &Path) -> Option<String> {
         fs::read_to_string(&p).ok()
     }
 
@@ -271,7 +270,7 @@ mod tests {
         let val = suggestions.unwrap();
         assert_eq!("a", val.2);
         assert!(val.1.contains_key("ab"));
-        assert_eq!(Datatype::Variable, val.1.get("ab").unwrap().datatype);
+        assert_eq!(Datatype::Variable, val.1["ab"].datatype);
     }
 
     #[test]
@@ -347,7 +346,7 @@ mod tests {
 
         let val = suggestions.unwrap();
 
-        assert!(val.1.get("abort").unwrap().documentation.is_some());
+        assert!(val.1["abort"].documentation.is_some());
     }
 
     #[test]
@@ -370,7 +369,7 @@ mod tests {
 
     impl App {
         #[cfg(test)]
-        pub fn read_from_str(_p: &PathBuf) -> Option<String> {
+        pub fn read_from_str(_p: &Path) -> Option<String> {
             Some(String::from("(1 + 1)"))
         }
     }

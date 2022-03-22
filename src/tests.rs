@@ -14,7 +14,7 @@ use stoppable_thread::*;
 
 #[allow(dead_code)]
 fn eval(code: &str) -> NixValue {
-    let ast = rnix::parse(&code);
+    let ast = rnix::parse(code);
     let root = ast.root().inner().unwrap();
     let path = std::env::current_dir().unwrap();
     let out = Expr::parse(root, Gc::new(Scope::Root(path))).unwrap();

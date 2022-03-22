@@ -128,22 +128,17 @@ pub fn ident_at(root: &SyntaxNode, offset: usize) -> Option<CursorInfo> {
     if let Some(node) = parent.clone().and_then(Inherit::cast) {
         if let Some(node) = node.from() {
             if let Some(tok) = node.inner() {
-                if let Some(_) = Ident::cast(tok.clone()) {
-                    return Some(CursorInfo::new(
-                        vec![tok.text().to_string()],
-                        ident.clone(),
-                        None,
-                    ));
-                } else if let Some(mut attr) = Select::cast(tok.clone()) {
-                    let mut result = Vec::new();
-                    result.push(attr.index()?.to_string().into());
+                if Ident::cast(tok.clone()).is_some() {
+                    return Some(CursorInfo::new(vec![tok.text().to_string()], ident, None));
+                } else if let Some(mut attr) = Select::cast(tok) {
+                    let mut result = vec![attr.index()?.to_string()];
                     while let Some(new) = Select::cast(attr.set()?) {
                         result.push(Ident::cast(new.index()?)?.as_str().into());
                         attr = new;
                     }
                     result.push(Ident::cast(attr.set()?)?.as_str().into());
                     result.reverse();
-                    return Some(CursorInfo::new(result, ident.clone(), None));
+                    return Some(CursorInfo::new(result, ident, None));
                 }
             }
         }
@@ -214,7 +209,7 @@ pub fn populate<T: EntryHolder>(
                         set: set.node().to_owned(),
                         key: ident.node().to_owned(),
                         value: Some(entry.value()?.to_owned()),
-                        datatype: datatype,
+                        datatype,
                     },
                 );
             }
@@ -229,14 +224,14 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
     while let Some(node) = current {
         match ParsedType::try_from(node.clone()) {
             Ok(ParsedType::LetIn(let_in)) => {
-                populate(&file, &mut scope, &let_in, Datatype::Variable);
+                populate(file, &mut scope, &let_in, Datatype::Variable);
             }
             Ok(ParsedType::LegacyLet(let_)) => {
-                populate(&file, &mut scope, &let_, Datatype::Variable);
+                populate(file, &mut scope, &let_, Datatype::Variable);
             }
             Ok(ParsedType::AttrSet(set)) => {
                 if set.recursive() {
-                    populate(&file, &mut scope, &set, Datatype::Attribute);
+                    populate(file, &mut scope, &set, Datatype::Attribute);
                 }
             }
             Ok(ParsedType::Lambda(lambda)) => match ParsedType::try_from(lambda.arg()?) {
@@ -245,7 +240,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                         scope.insert(
                             ident.as_str().into(),
                             Var {
-                                file: Rc::clone(&file),
+                                file: Rc::clone(file),
                                 set: lambda.node().clone(),
                                 key: ident.node().clone(),
                                 value: None,
@@ -261,7 +256,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                             scope.insert(
                                 ident.as_str().into(),
                                 Var {
-                                    file: Rc::clone(&file),
+                                    file: Rc::clone(file),
                                     set: lambda.node().to_owned(),
                                     key: ident.node().to_owned(),
                                     value: None,
@@ -275,7 +270,7 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
                             scope.insert(
                                 ident.as_str().into(),
                                 Var {
-                                    file: Rc::clone(&file),
+                                    file: Rc::clone(file),
                                     set: lambda.node().to_owned(),
                                     key: ident.node().to_owned(),
                                     value: None,
@@ -435,7 +430,7 @@ mod tests {
         assert!(scope_let.is_some());
         let scope_entries = scope_let.unwrap();
         assert_eq!(6, scope_entries.keys().len());
-        assert_eq!(Datatype::Variable, scope_entries.get("a").unwrap().datatype);
+        assert_eq!(Datatype::Variable, scope_entries["a"].datatype);
     }
 
     #[test]

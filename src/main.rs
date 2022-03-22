@@ -10,16 +10,11 @@
     clippy::decimal_literal_representation,
     clippy::float_cmp_const,
     clippy::get_unwrap,
-    clippy::integer_arithmetic,
     clippy::integer_division,
     clippy::pedantic,
 )]
-#![allow(
-    // filter().map() can sometimes be more readable
-    clippy::filter_map,
-    // Most integer arithmetics are within an allocated region, so we know it's safe
-    clippy::integer_arithmetic,
-)]
+// filter().map() can sometimes be more readable
+#![allow(clippy::manual_filter_map)]
 
 mod error;
 mod eval;
@@ -208,7 +203,7 @@ impl App {
             let changes = if let Some((ast, code, _)) = self.files.get(&params.text_document.uri) {
                 let fmt = nixpkgs_fmt::reformat_node(&ast.node());
                 vec![TextEdit {
-                    range: utils::range(&code, TextRange::up_to(ast.node().text().len())),
+                    range: utils::range(code, TextRange::up_to(ast.node().text().len())),
                     new_text: fmt.text().to_string(),
                 }]
             } else {
@@ -277,7 +272,7 @@ impl App {
                     .files
                     .get(&uri)
                     .map(|f| f.1.clone())
-                    .unwrap_or("".to_string());
+                    .unwrap_or_else(|| "".to_string());
                 for change in params.content_changes.into_iter() {
                     let range = match change.range {
                         Some(x) => x,
@@ -324,8 +319,7 @@ impl App {
                     let gc_root = Gc::new(Scope::Root(path));
                     let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
                     let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
-                    self.files
-                        .insert(uri, (parsed, content.to_owned().to_string(), evaluated));
+                    self.files.insert(uri, (parsed, content, evaluated));
                 }
             }
             _ => (),
@@ -402,7 +396,7 @@ impl App {
                 }
             }
         };
-        let child_expr = climb_expr(expr, offset).clone();
+        let child_expr = climb_expr(expr, offset);
         let range = utils::range(content, child_expr.range?);
         let msg = match child_expr.eval() {
             Ok(value) => value.format_markdown(),
@@ -435,9 +429,7 @@ impl App {
                 let det = data.render_detail();
                 completions.push(CompletionItem {
                     label: var.clone(),
-                    documentation: data
-                        .documentation
-                        .map(|x| lsp_types::Documentation::String(x)),
+                    documentation: data.documentation.map(lsp_types::Documentation::String),
                     deprecated: Some(data.deprecated),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         range: utils::range(content, node.node().text_range()),

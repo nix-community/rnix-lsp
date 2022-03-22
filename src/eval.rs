@@ -247,10 +247,12 @@ impl Expr {
                 .get(name)
                 // We don't have everything implemented yet, so silently fail,
                 // assuming we're at fault
-                .ok_or(EvalError::Internal(InternalError::Unimplemented(format!(
-                    "not found in scope: {}",
-                    name
-                ))))?
+                .ok_or_else(|| {
+                    EvalError::Internal(InternalError::Unimplemented(format!(
+                        "not found in scope: {}",
+                        name
+                    )))
+                })?
                 .eval(),
             ExprSource::Select { from, index } => {
                 let key = index.as_ref()?.as_ident()?;
@@ -338,7 +340,7 @@ impl Expr {
     pub fn get_definition(&self) -> Option<Gc<Expr>> {
         use ExprSource::*;
         match &self.source {
-            Ident { name } => self.scope.get(&name),
+            Ident { name } => self.scope.get(name),
             Select { from, index } => {
                 let idx = index.as_ref().ok()?.as_ident().ok()?;
                 let out = from
