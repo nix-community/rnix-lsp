@@ -35,5 +35,17 @@
           drv = packages.rnix-lsp;
         };
         defaultApp = apps.rnix-lsp;
-      });
+      })
+      //
+      rec {
+        overlays = { 
+          default = final: prev: rec {
+          rnix-lsp = self.packages.${prev.system}.rnix-lsp;
+        };
+          nightly = final: prev: rec {
+          rnix-lsp-nightly = self.packages.${prev.system}.rnix-lsp;
+          };
+        };
+        overlay = overlays.default;
+    };
 }
