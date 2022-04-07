@@ -29,6 +29,27 @@ Support for **Mac OS** is not guaranteed (see [PR #61](https://github.com/nix-co
 ```
 nix-env -i -f https://github.com/nix-community/rnix-lsp/archive/master.tar.gz
 ```
+### Using as overlay
+An example flake with home-manager integration:
+```
+{
+  inputs.rnix-lsp.url = "github:nix-community/rnix-lsp";
+  outputs = { self, ... }@inputs:
+    let
+      overlays = [
+          inputs.rnix-lsp.overlay
+        ];
+    in
+      homeConfigurations = {
+        machine = inputs.home-manager.lib.homeManagerConfiguration {
+          configuration = { pkgs, ... }:
+            {
+              nixpkgs.overlays = overlays;
+            };
+        };
+      };
+}
+```
 
 ## Integrate with your editor
 
@@ -113,6 +134,7 @@ If you run into an issue regarding "missing roots" see this [issue](https://gith
     "nix.enableLanguageServer": true
 }
 ```
+
 
 # RIP jd91mzm2
 
