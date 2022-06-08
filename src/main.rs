@@ -210,11 +210,38 @@ impl App {
             self.reply(Response::new_ok(id, document_links));
         } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
             let changes = if let Some((ast, code, _)) = self.files.get(&params.text_document.uri) {
-                let fmt = nixpkgs_fmt::reformat_node(&ast.node());
-                vec![TextEdit {
-                    range: utils::range(&code, TextRange::up_to(ast.node().text().len())),
-                    new_text: fmt.text().to_string(),
-                }]
+                let (edits1, edits2) = nixpkgs_fmt::reformat_edits(&ast.node());
+                warn!("edits1: {:?}\nedits2: {:?}", edits1, edits2);
+                let merged = textedit_merge::merge(
+                    &edits1
+                        .into_iter()
+                        .map(|(r, s)| {
+                            let r: std::ops::Range<usize> = r.start().into()..r.end().into();
+                            (r, s)
+                        })
+                        .collect::<Vec<(std::ops::Range<usize>, String)>>(),
+                    &edits2
+                        .into_iter()
+                        .map(|(r, s)| {
+                            let r: std::ops::Range<usize> = r.start().into()..r.end().into();
+                            (r, s)
+                        })
+                        .collect::<Vec<(std::ops::Range<usize>, String)>>(),
+                );
+                warn!("merged: {:?}", merged);
+                merged
+                    .into_iter()
+                    .map(|edit| TextEdit {
+                        range: utils::range(
+                            &code,
+                            TextRange::new(
+                                TextSize::from(edit.0.start as u32),
+                                TextSize::from(edit.0.end as u32),
+                            ),
+                        ),
+                        new_text: edit.1,
+                    })
+                    .collect::<Vec<_>>()
             } else {
                 Vec::new()
             };
@@ -353,7 +380,7 @@ impl App {
         let start: usize = range.start().into();
         let end: usize = range.end().into();
         if start <= offset && offset < end {
-            return None
+            return None;
         }
 
         let (_definition_ast, definition_content, _) = self.files.get(&var.file)?;
@@ -378,7 +405,7 @@ impl App {
         let start: usize = range.start().into();
         let end: usize = range.end().into();
         if start <= offset && offset < end {
-            return None
+            return None;
         }
 
         let def_path = def.scope.root_path()?;

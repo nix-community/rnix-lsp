@@ -357,14 +357,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "nixpkgs-fmt-rnix"
+name = "nixpkgs-fmt"
 version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38cd28a1c98361571955f6ddd71a27631671b025c49f4a5885cf4305ea82ba60"
+source = "git+https://github.com/mtoohey31/nixpkgs-fmt?branch=feat/reformat-edits#80e18e670cd0a84785cbd0ba728ad8846e8e0e22"
 dependencies = [
  "clap",
  "crossbeam-channel 0.3.9",
  "ignore",
+ "libc",
  "rnix",
  "rowan",
  "serde_json",
@@ -471,12 +471,13 @@ dependencies = [
  "lsp-server",
  "lsp-types",
  "maplit",
- "nixpkgs-fmt-rnix",
+ "nixpkgs-fmt",
  "regex",
  "rnix",
  "serde",
  "serde_json",
  "stoppable_thread",
+ "textedit-merge",
 ]
 
 [[package]]
@@ -619,6 +620,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "textedit-merge"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9bb566d3c513aaadef8a4b2e805d75c5714e21b0a689c930365762ff0f2fc03"
+
+[[package]]
 name = "textwrap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -679,9 +686,9 @@ checksum = "099b7128301d285f79ddd55b9a83d5e6b9e97c92e0ea0daebee7263e932de992"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bd2fe26506023ed7b5e1e315add59d6f584c621d037f9368fea9cfb988f368c"
+checksum = "d22af068fba1eb5edcb4aea19d382b2a3deb4c8f9d475c589b6ada9e0fd493ee"
 
 [[package]]
 name = "unicode-normalization"
