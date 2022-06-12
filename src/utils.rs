@@ -356,7 +356,10 @@ mod tests {
         assert_eq!(0, start.start.character);
         assert_eq!(1, start.end.character);
 
-        let actual_pos = range(expr, TextRange::new(TextSize::from(15), TextSize::from(20)));
+        let actual_pos = range(expr, TextRange::new(
+            TextSize::from(15),
+            TextSize::from(20)
+        ));
 
         assert_eq!(1, actual_pos.start.line);
         assert_eq!(1, actual_pos.end.line);
@@ -385,13 +388,10 @@ mod tests {
     #[test]
     fn test_lookup_pos_in_expr() {
         let expr = "let a = 1;\nbuiltins.trace a 23";
-        let pos = lookup_pos(
-            expr,
-            Position {
-                line: 0,
-                character: 0,
-            },
-        );
+        let pos = lookup_pos(expr, Position {
+            line: 0,
+            character: 0,
+        });
 
         assert_eq!(0, pos.expect("expected position to be not None!"));
     }
@@ -399,29 +399,17 @@ mod tests {
     #[test]
     fn test_lookup_pos_out_of_range() {
         let expr = "let a = 1;\na";
-        let pos_wrong_line = lookup_pos(
-            expr,
-            Position {
-                line: 5,
-                character: 23,
-            },
-        );
+        let pos_wrong_line = lookup_pos(expr, Position {
+            line: 5,
+            character: 23,
+        });
 
         assert!(pos_wrong_line.is_none());
 
         // if the character is greater than the length of a line, the offset of the last
         // char of the line is returned.
-        let pos_char_out_of_range = lookup_pos(
-            expr,
-            Position {
-                line: 0,
-                character: 100,
-            },
-        );
-        assert_eq!(
-            10,
-            pos_char_out_of_range.expect("expected position to be not None!")
-        );
+        let pos_char_out_of_range = lookup_pos(expr, Position { line: 0, character: 100, });
+        assert_eq!(10, pos_char_out_of_range.expect("expected position to be not None!"));
     }
 
     #[test]
@@ -430,26 +418,21 @@ mod tests {
         let root = rnix::parse(expr).node();
         let scope = scope_for(
             &Rc::new(Url::parse("file:///default.nix").unwrap()),
-            root.children().next().unwrap(),
+            root.children().next().unwrap()
         );
 
         assert!(scope.is_some());
         let scope_entries = scope.unwrap();
 
         assert_eq!(5, scope_entries.keys().len());
-        assert!(scope_entries
-            .values()
-            .into_iter()
-            .all(|x| x.datatype == Datatype::Lambda));
-        assert!(vec!["n", "a", "b", "c", "d"]
-            .into_iter()
-            .all(|x| scope_entries.contains_key(x)));
+        assert!(scope_entries.values().into_iter().all(|x| x.datatype == Datatype::Lambda));
+        assert!(vec!["n", "a", "b", "c", "d"].into_iter().all(|x| scope_entries.contains_key(x)));
 
         let mut iter = root.children().next().unwrap().children();
         iter.next();
         let scope_let = scope_for(
             &Rc::new(Url::parse("file:///default.nix").unwrap()),
-            iter.next().unwrap(),
+            iter.next().unwrap()
         );
 
         assert!(scope_let.is_some());
@@ -464,16 +447,14 @@ mod tests {
         let root = rnix::parse(expr).node();
         let scope = scope_for(
             &Rc::new(Url::parse("file:///default.nix").unwrap()),
-            root.children().next().unwrap(),
+            root.children().next().unwrap()
         );
 
         assert!(scope.is_some());
         let scope_entries = scope.unwrap();
 
         assert_eq!(2, scope_entries.keys().len());
-        assert!(vec!["a", "body"]
-            .into_iter()
-            .all(|x| scope_entries.contains_key(x)));
+        assert!(vec!["a", "body"].into_iter().all(|x| scope_entries.contains_key(x)));
     }
 
     #[test]
