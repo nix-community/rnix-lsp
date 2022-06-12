@@ -59,7 +59,10 @@ use std::{
     str::FromStr,
 };
 
-use crate::error::AppError;
+use crate::{
+    error::AppError,
+    utils::{atom_edit_to_tuple, tuple_to_text_edit},
+};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -210,37 +213,20 @@ impl App {
             self.reply(Response::new_ok(id, document_links));
         } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
             let changes = if let Some((ast, code, _)) = self.files.get(&params.text_document.uri) {
-                let (edits1, edits2) = nixpkgs_fmt::reformat_edits(&ast.node());
-                warn!("edits1: {:?}\nedits2: {:?}", edits1, edits2);
-                let merged = textedit_merge::merge(
-                    &edits1
+                let (spacing_edits, indent_edits) = nixpkgs_fmt::reformat_edits(&ast.node());
+                let merged_edits = textedit_merge::merge(
+                    &spacing_edits
                         .into_iter()
-                        .map(|(r, s)| {
-                            let r: std::ops::Range<usize> = r.start().into()..r.end().into();
-                            (r, s)
-                        })
-                        .collect::<Vec<(std::ops::Range<usize>, String)>>(),
-                    &edits2
+                        .map(atom_edit_to_tuple)
+                        .collect::<Vec<(std::ops::Range<usize>, _)>>(),
+                    &indent_edits
                         .into_iter()
-                        .map(|(r, s)| {
-                            let r: std::ops::Range<usize> = r.start().into()..r.end().into();
-                            (r, s)
-                        })
-                        .collect::<Vec<(std::ops::Range<usize>, String)>>(),
+                        .map(atom_edit_to_tuple)
+                        .collect::<Vec<(std::ops::Range<usize>, _)>>(),
                 );
-                warn!("merged: {:?}", merged);
-                merged
+                merged_edits
                     .into_iter()
-                    .map(|edit| TextEdit {
-                        range: utils::range(
-                            &code,
-                            TextRange::new(
-                                TextSize::from(edit.0.start as u32),
-                                TextSize::from(edit.0.end as u32),
-                            ),
-                        ),
-                        new_text: edit.1,
-                    })
+                    .map(|t| tuple_to_text_edit(t, &code))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()

@@ -359,7 +359,7 @@ dependencies = [
 [[package]]
 name = "nixpkgs-fmt"
 version = "1.2.0"
-source = "git+https://github.com/mtoohey31/nixpkgs-fmt?branch=feat/reformat-edits#80e18e670cd0a84785cbd0ba728ad8846e8e0e22"
+source = "git+https://github.com/mtoohey31/nixpkgs-fmt?branch=feat/reformat-edits#07ee0d8b538e3134c0b8bb4463e3caedb3501cb1"
 dependencies = [
  "clap",
  "crossbeam-channel 0.3.9",
