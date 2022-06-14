@@ -20,7 +20,7 @@ log = "0.4.8"
 lsp-server = "0.5.2"
 lsp-types = { version = "0.89.2", features = ["proposed"] }
 regex = "1"
-rnix = "0.10.1"
+rnix = "0.10.2"
 rowan = "0.12.6"
 serde = "1.0.104"
 serde_json = "1.0.44"
