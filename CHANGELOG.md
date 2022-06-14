@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Nothing here, yet.
 
+## [v0.2.5] - 2022-06-14
+
+### Changed
+
+* Updated [`rnix`](https://crates.io/crates/rnix) to [`0.10.2`](https://github.com/nix-community/rnix-parser/blob/v0.10.2/CHANGELOG.md#v0102---2022-06-14)
+to properly support paths with string antiquotations.
+
 ## [v0.2.4] - 2022-01-31
 
 ### Changed
@@ -80,7 +87,8 @@ to dedicate this release to them to make sure they're not forgotten.
 
 * Initial release.
 
-[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.4...master
+[Unreleased]: https://github.com/nix-community/rnix-lsp/compare/v0.2.5...master
+[v0.2.5]: https://github.com/nix-community/rnix-lsp/compare/v0.2.4...v0.2.5
 [v0.2.4]: https://github.com/nix-community/rnix-lsp/compare/v0.2.3...v0.2.4
 [v0.2.3]: https://github.com/nix-community/rnix-lsp/compare/v0.2.2...v0.2.3
 [v0.2.2]: https://github.com/nix-community/rnix-lsp/compare/v0.2.1...v0.2.2
