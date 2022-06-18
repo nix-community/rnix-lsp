@@ -50,6 +50,12 @@ fn visit(acc: &mut Vec<Located<ValueError>>, node: &Expr, ident_ctx: Ident) {
                 visit_result(acc, i, &node.range, IsVariable)
             }
         }
+        ExprSource::LetIn { definitions, body } => {
+            for i in definitions.iter() {
+                visit_result(acc, i, &node.range, IsVariable)
+            }
+            visit_result(acc, body, &node.range, IsVariable);
+        }
         ExprSource::KeyValuePair { key, value } => {
             visit_result(acc, key, &node.range, IsNotVariable);
             visit_result(acc, value, &node.range, IsVariable);

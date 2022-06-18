@@ -68,6 +68,18 @@ fn order_of_operations() {
 }
 
 #[test]
+fn eval_let() {
+    let code = "let x = 1; in x";
+    assert_eq!(eval(code).as_int().unwrap(), 1);
+}
+
+#[test]
+fn eval_let_sequential() {
+    let code = "let x = 1; y = x; in x + y";
+    assert_eq!(eval(code).as_int().unwrap(), 2);
+}
+
+#[test]
 fn div_int_by_float() {
     let code = "1 / 2.0";
     assert_eq!(eval(code).as_float().unwrap(), 0.5);
@@ -94,7 +106,46 @@ fn binding_analysis_ignores_attrset_selection() {
 #[test]
 fn unbound_attrset() {
     let code = "1 + rec { x = 1; y = x; z = t; }.y";
-    assert_eq!(static_analysis(code), hashmap!{"t" => "identifier t is unbound".into()});
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"t" => "identifier t is unbound".into()}
+    );
+}
+
+#[test]
+fn bound_let() {
+    let code = "let x = 1; y = x; in x + y";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_let_body() {
+    let code = "let x = 1; in x + y";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"y" => "identifier y is unbound".into()}
+    );
+}
+
+#[test]
+fn unbound_let_defs() {
+    let code = "let x = t; y = u; in x + y";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"t" => "identifier t is unbound".into(), "u" => "identifier u is unbound".into()}
+    );
+}
+
+#[test]
+fn bound_let_fixpoint() {
+    let code = "let x = x; in x";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_let_recursive() {
+    let code = "let y = x; x = 1; in x - y";
+    assert_eq!(static_analysis(code), hashmap! {});
 }
 
 #[cfg(test)]

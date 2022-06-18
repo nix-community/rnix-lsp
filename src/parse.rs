@@ -36,6 +36,218 @@ pub enum BinOpKind {
     NotEqual,
 }
 
+/// Parse a node with `key = value;` pairs like an attrset or let in
+///
+/// Returns the scope unchanged if is_recursive is false or a new one with the `key = value;`
+/// bindings added.
+fn parse_entry_holder<T: EntryHolder>(
+    node: &T,
+    scope: Gc<Scope>,
+    is_recursive: bool,
+) -> Result<
+    (
+        HashMap<String, Gc<Expr>>,
+        Vec<Result<Gc<Expr>, EvalError>>,
+        Gc<Scope>,
+    ),
+    EvalError,
+> {
+    // Create a new scope if we're a recursive attr set. We'll later
+    // populate this scope with the non-dynamic keys of the set.
+    let new_scope = if is_recursive {
+        let new = Scope::Let {
+            parent: scope.clone(),
+            contents: GcCell::new(HashMap::new()),
+        };
+        Gc::new(new)
+    } else {
+        scope.clone()
+    };
+
+    // Used for the NixValue of this attribute set.
+    let mut value_map = HashMap::new();
+    // Used for the ExprSource. See ExprSource::AttrSet for
+    // details on why we create both a hashmap and a vector.
+    let mut definitions = vec![];
+
+    for entry in node.entries() {
+        // Where x, y, z are KeyValuePairs:
+        //
+        //   services.bluetooth.enable = true;
+        //                      +------------+ x
+        //            +----------------------+ y
+        //   +-------------------------------+ z
+        //
+        // Hovering over `x` should show `true`.
+        // Hovering over `y` should show `{ enable }`.
+        // Hovering over `z` should show `{ bluetooth }`.
+        //
+        // This matches what we would see for verbose syntax:
+        //
+        //   services = { bluetooth = { enable = true; }; };
+        //
+        // So, we rewrite paths into the verbose syntax.
+
+        let mut path = entry
+            .key()
+            .ok_or(ERR_PARSING)?
+            .path()
+            .map(|node| Expr::parse(node, scope.clone()).map(Gc::new))
+            .collect::<Vec<_>>();
+
+        // NOTE: This pops from the end, so we want to remove
+        //       the inmost element before reversing
+        let inmost_key = path.pop().unwrap()?;
+
+        // After this, our path lists path elements from right to left
+        path.reverse();
+
+        let inmost_value_syntax = entry.value().ok_or(ERR_PARSING)?;
+        let entry_end = inmost_value_syntax.text_range().end();
+        let inmost_value = Expr::parse(inmost_value_syntax, new_scope.clone())?;
+
+        let here_start = inmost_key.range.ok_or(ERR_PARSING)?.start();
+
+        let mut cursor_range = TextRange::new(here_start, entry_end);
+        let mut cursor_key_name = inmost_key.as_ident()?;
+        let mut cursor_value = Gc::new(Expr {
+            value: GcCell::new(None),
+            source: ExprSource::KeyValuePair {
+                key: Ok(inmost_key),
+                value: Ok(Gc::new(inmost_value)),
+            },
+            range: Some(cursor_range),
+            scope: new_scope.clone(),
+        });
+
+        for element in path {
+            let here_start = element.as_ref()?.range.ok_or(ERR_PARSING)?.start();
+
+            // Create an invisible attr set
+            let tmp_map = NixValue::Map(HashMap::from_iter(vec![(
+                cursor_key_name,
+                cursor_value.clone(),
+            )]));
+            let tmp_attr_set = Gc::new(Expr {
+                value: GcCell::new(Some(Gc::new(tmp_map))),
+                source: ExprSource::AttrSet {
+                    definitions: vec![Ok(cursor_value)],
+                },
+                range: Some(cursor_range),
+                scope: new_scope.clone(),
+            });
+
+            cursor_range = TextRange::new(here_start, entry_end);
+            cursor_key_name = element.as_ref()?.as_ident()?;
+            cursor_value = Gc::new(Expr {
+                value: GcCell::new(None),
+                source: ExprSource::KeyValuePair {
+                    key: element,
+                    value: Ok(tmp_attr_set),
+                },
+                range: Some(cursor_range.clone()),
+                scope: new_scope.clone(),
+            });
+        }
+
+        definitions.push(Ok(cursor_value.clone()));
+
+        // Merge values if needed. For example:
+        // { a.b = 1; a.c = 2; } => { a = { b = 1; c = 2; }; }
+        let merged_value = match value_map.get(&cursor_key_name) as Option<&Gc<Expr>> {
+            Some(existing) => merge_set_literal(
+                cursor_key_name.clone(),
+                existing.clone(),
+                cursor_value.clone(),
+            )?,
+            None => cursor_value,
+        };
+        value_map.insert(cursor_key_name, merged_value);
+    }
+
+    use std::collections::hash_map::Entry;
+
+    // Note that we don't query the scope yet, since that would
+    // cause expressions like `with pkgs; { inherit htop; }` to
+    // evaluate the `with` statement earlier than needed. Instead
+    // we create ExprSource::Ident and ExprSource::Select expressions
+    // then put those in the attribute set.
+    for inherit in node.inherits() {
+        // Handle syntax like `inherit (some_expression) foo` by
+        // rewriting it to `foo = some_expression.foo`, allowing
+        // `some_expression` to be lazily evaluated.
+        if let Some(from) = inherit.from() {
+            let from = Gc::new(Expr::parse(
+                from.inner().ok_or(ERR_PARSING)?,
+                new_scope.clone(),
+            )?);
+
+            // For our example described above, add `some_expression`,
+            // `foo`, and `bar` to the ExprSource so they're all visible
+            // to interactive tooling.
+            definitions.push(Ok(from.clone()));
+
+            for ident in inherit.idents() {
+                let name = ident.as_str();
+                let index = Box::new(Expr {
+                    value: GcCell::new(None),
+                    source: ExprSource::Ident {
+                        name: name.to_string(),
+                    },
+                    range: None,
+                    scope: scope.clone(),
+                });
+                let attr = Gc::new(Expr {
+                    value: GcCell::new(None),
+                    source: ExprSource::Select {
+                        from: Ok(from.clone()),
+                        index: Ok(index),
+                    },
+                    range: Some(ident.node().text_range()),
+                    scope: scope.clone(),
+                });
+                definitions.push(Ok(attr.clone()));
+                let name = name.to_string();
+                match value_map.entry(name.clone()) {
+                    Entry::Occupied(_) => {
+                        return Err(EvalError::Value(ValueError::AttrAlreadyDefined(name)))
+                    }
+                    Entry::Vacant(entry) => entry.insert(attr),
+                };
+            }
+        } else {
+            // Handle `inherit` from scope
+            for ident in inherit.idents() {
+                let name = ident.as_str();
+                let attr = Gc::new(Expr {
+                    value: GcCell::new(None),
+                    source: ExprSource::Ident {
+                        name: name.to_string(),
+                    },
+                    range: Some(ident.node().text_range()),
+                    scope: scope.clone(),
+                });
+                definitions.push(Ok(attr.clone()));
+                let name = name.to_string();
+                match value_map.entry(name.clone()) {
+                    Entry::Occupied(_) => {
+                        return Err(EvalError::Value(ValueError::AttrAlreadyDefined(name)))
+                    }
+                    Entry::Vacant(entry) => entry.insert(attr),
+                };
+            }
+        }
+    }
+
+    if is_recursive {
+        // update the scope to include our hashmap
+        if let Scope::Let { contents, .. } = new_scope.borrow() {
+            *contents.borrow_mut() = value_map.clone();
+        }
+    }
+    Ok((value_map, definitions, new_scope))
+}
+
 impl Expr {
     /// Convert a rnix-parser tree into a syntax tree that can be lazily evaluated.
     ///
@@ -53,199 +265,8 @@ impl Expr {
             ParsedType::AttrSet(set) => {
                 let is_recursive = set.recursive();
 
-                // Create a new scope if we're a recursive attr set. We'll later
-                // populate this scope with the non-dynamic keys of the set.
-                let new_scope = if is_recursive {
-                    let new = Scope::Let {
-                        parent: scope.clone(),
-                        contents: GcCell::new(HashMap::new()),
-                    };
-                    Gc::new(new)
-                } else {
-                    scope.clone()
-                };
-
-                // Used for the NixValue of this attribute set.
-                let mut value_map = HashMap::new();
-                // Used for the ExprSource. See ExprSource::AttrSet for
-                // details on why we create both a hashmap and a vector.
-                let mut definitions = vec![];
-
-                for entry in set.entries() {
-                    // Where x, y, z are KeyValuePairs:
-                    //
-                    //   services.bluetooth.enable = true;
-                    //                      +------------+ x
-                    //            +----------------------+ y
-                    //   +-------------------------------+ z
-                    //
-                    // Hovering over `x` should show `true`.
-                    // Hovering over `y` should show `{ enable }`.
-                    // Hovering over `z` should show `{ bluetooth }`.
-                    //
-                    // This matches what we would see for verbose syntax:
-                    //
-                    //   services = { bluetooth = { enable = true; }; };
-                    //
-                    // So, we rewrite paths into the verbose syntax.
-
-                    let mut path = entry
-                        .key()
-                        .ok_or(ERR_PARSING)?
-                        .path()
-                        .map(|node| Self::parse(node, scope.clone()).map(Gc::new))
-                        .collect::<Vec<_>>();
-
-                    // NOTE: This pops from the end, so we want to remove
-                    //       the inmost element before reversing
-                    let inmost_key = path.pop().unwrap()?;
-
-                    // After this, our path lists path elements from right to left
-                    path.reverse();
-
-                    let inmost_value_syntax = entry.value().ok_or(ERR_PARSING)?;
-                    let entry_end = inmost_value_syntax.text_range().end();
-                    let inmost_value = Self::parse(inmost_value_syntax, new_scope.clone())?;
-
-                    let here_start = inmost_key.range.ok_or(ERR_PARSING)?.start();
-
-                    let mut cursor_range = TextRange::new(here_start, entry_end);
-                    let mut cursor_key_name = inmost_key.as_ident()?;
-                    let mut cursor_value = Gc::new(Expr {
-                        value: GcCell::new(None),
-                        source: ExprSource::KeyValuePair {
-                            key: Ok(inmost_key),
-                            value: Ok(Gc::new(inmost_value)),
-                        },
-                        range: Some(cursor_range),
-                        scope: new_scope.clone(),
-                    });
-
-                    for element in path {
-                        let here_start = element.as_ref()?.range.ok_or(ERR_PARSING)?.start();
-
-                        // Create an invisible attr set
-                        let tmp_map = NixValue::Map(HashMap::from_iter(vec![(
-                            cursor_key_name,
-                            cursor_value.clone(),
-                        )]));
-                        let tmp_attr_set = Gc::new(Expr {
-                            value: GcCell::new(Some(Gc::new(tmp_map))),
-                            source: ExprSource::AttrSet {
-                                definitions: vec![Ok(cursor_value)],
-                            },
-                            range: Some(cursor_range),
-                            scope: new_scope.clone(),
-                        });
-
-                        cursor_range = TextRange::new(here_start, entry_end);
-                        cursor_key_name = element.as_ref()?.as_ident()?;
-                        cursor_value = Gc::new(Expr {
-                            value: GcCell::new(None),
-                            source: ExprSource::KeyValuePair {
-                                key: element,
-                                value: Ok(tmp_attr_set),
-                            },
-                            range: Some(cursor_range.clone()),
-                            scope: new_scope.clone(),
-                        });
-                    }
-
-                    definitions.push(Ok(cursor_value.clone()));
-
-                    // Merge values if needed. For example:
-                    // { a.b = 1; a.c = 2; } => { a = { b = 1; c = 2; }; }
-                    let merged_value = match value_map.get(&cursor_key_name) as Option<&Gc<Expr>> {
-                        Some(existing) => merge_set_literal(
-                            cursor_key_name.clone(),
-                            existing.clone(),
-                            cursor_value.clone(),
-                        )?,
-                        None => cursor_value,
-                    };
-                    value_map.insert(cursor_key_name, merged_value);
-                }
-
-                use std::collections::hash_map::Entry;
-
-                // Note that we don't query the scope yet, since that would
-                // cause expressions like `with pkgs; { inherit htop; }` to
-                // evaluate the `with` statement earlier than needed. Instead
-                // we create ExprSource::Ident and ExprSource::Select expressions
-                // then put those in the attribute set.
-                for inherit in set.inherits() {
-                    // Handle syntax like `inherit (some_expression) foo` by
-                    // rewriting it to `foo = some_expression.foo`, allowing
-                    // `some_expression` to be lazily evaluated.
-                    if let Some(from) = inherit.from() {
-                        let from = Gc::new(Self::parse(
-                            from.inner().ok_or(ERR_PARSING)?,
-                            new_scope.clone(),
-                        )?);
-
-                        // For our example described above, add `some_expression`,
-                        // `foo`, and `bar` to the ExprSource so they're all visible
-                        // to interactive tooling.
-                        definitions.push(Ok(from.clone()));
-
-                        for ident in inherit.idents() {
-                            let name = ident.as_str();
-                            let index = Box::new(Expr {
-                                value: GcCell::new(None),
-                                source: ExprSource::Ident {
-                                    name: name.to_string(),
-                                },
-                                range: None,
-                                scope: scope.clone(),
-                            });
-                            let attr = Gc::new(Expr {
-                                value: GcCell::new(None),
-                                source: ExprSource::Select {
-                                    from: Ok(from.clone()),
-                                    index: Ok(index),
-                                },
-                                range: Some(ident.node().text_range()),
-                                scope: scope.clone(),
-                            });
-                            definitions.push(Ok(attr.clone()));
-                            let name = name.to_string();
-                            match value_map.entry(name.clone()) {
-                                Entry::Occupied(_) => {
-                                    return Err(EvalError::Value(ValueError::AttrAlreadyDefined(name)))
-                                }
-                                Entry::Vacant(entry) => entry.insert(attr),
-                            };
-                        }
-                    } else {
-                        // Handle `inherit` from scope
-                        for ident in inherit.idents() {
-                            let name = ident.as_str();
-                            let attr = Gc::new(Expr {
-                                value: GcCell::new(None),
-                                source: ExprSource::Ident {
-                                    name: name.to_string(),
-                                },
-                                range: Some(ident.node().text_range()),
-                                scope: scope.clone(),
-                            });
-                            definitions.push(Ok(attr.clone()));
-                            let name = name.to_string();
-                            match value_map.entry(name.clone()) {
-                                Entry::Occupied(_) => {
-                                    return Err(EvalError::Value(ValueError::AttrAlreadyDefined(name)))
-                                }
-                                Entry::Vacant(entry) => entry.insert(attr),
-                            };
-                        }
-                    }
-                }
-
-                if is_recursive {
-                    // update the scope to include our hashmap
-                    if let Scope::Let { contents, .. } = new_scope.borrow() {
-                        *contents.borrow_mut() = value_map.clone();
-                    }
-                }
+                let (value_map, definitions, new_scope) =
+                    parse_entry_holder(&set, scope, is_recursive)?;
 
                 return Ok(Expr {
                     value: GcCell::new(Some(Gc::new(NixValue::Map(value_map)))),
@@ -334,6 +355,21 @@ impl Expr {
                         }
                     },
                 }
+            }
+            ParsedType::LetIn(letin) => {
+                let (_value_map, definitions, new_scope) =
+                    parse_entry_holder(&letin, scope.clone(), true)?;
+                let body = letin.body().ok_or(ERR_PARSING)?;
+                let body_source = Expr::parse(body, new_scope.clone()).map(Box::new);
+                return Ok(Expr {
+                    value: GcCell::new(None),
+                    source: ExprSource::LetIn {
+                        definitions,
+                        body: body_source,
+                    },
+                    range,
+                    scope: new_scope,
+                });
             }
             node => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(

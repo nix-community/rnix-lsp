@@ -36,6 +36,18 @@ pub enum ExprSource {
         /// ```
         definitions: Vec<ExprResultGc>,
     },
+    LetIn {
+        /// We use a list because the user might define the same top-level
+        /// attribute in multiple places via path syntax. For example:
+        /// ```nix
+        /// {
+        ///   xyz.foo = true;
+        ///   xyz.bar = false;
+        /// }
+        /// ```
+        definitions: Vec<ExprResultGc>,
+        body: ExprResultBox,
+    },
     /// See the AttrSet handling in Expr::parse for more details.
     /// Note that this syntax is the exact opposite of Expr::Select.
     KeyValuePair {
@@ -135,6 +147,7 @@ impl Expr {
     fn eval_uncached(&self) -> Result<Gc<NixValue>, EvalError> {
         match &self.source {
             ExprSource::Paren { inner } => inner.as_ref()?.eval(),
+            ExprSource::LetIn { body, .. } => body.as_ref()?.eval(),
             ExprSource::Literal { value } => Ok(Gc::new(value.clone())),
             ExprSource::BoolAnd { left, right } => {
                 if left.as_ref()?.eval()?.as_bool()? {
@@ -299,6 +312,21 @@ impl Expr {
                     .filter_map(Result::ok)
                     .map(|x| x.as_ref())
                     .collect();
+            }
+            ExprSource::LetIn {
+                definitions,
+                body
+            } => {
+                let mut out = vec![];
+                for def in definitions {
+                    if let Ok(x) = def.as_ref() {
+                        out.push(x.as_ref())
+                    }
+                }
+                if let Ok(b) = body {
+                    out.push(b.as_ref())
+                }
+                return out;
             }
             ExprSource::KeyValuePair { key, value } => {
                 let mut out = vec![];
