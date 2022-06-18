@@ -4,7 +4,10 @@ use rnix::types::Wrapper;
 use scope::Scope;
 use std::borrow::Borrow;
 use value::NixValue;
+use crate::static_analysis;
 
+#[cfg(test)]
+use maplit::hashmap;
 #[cfg(test)]
 use serde_json::json;
 #[cfg(test)]
@@ -13,14 +16,35 @@ use std::time::Duration;
 use stoppable_thread::*;
 
 #[allow(dead_code)]
+/// Evaluates a nix code snippet
 fn eval(code: &str) -> NixValue {
     let ast = rnix::parse(&code);
     let root = ast.root().inner().unwrap();
     let path = std::env::current_dir().unwrap();
     let out = Expr::parse(root, Gc::new(Scope::Root(path))).unwrap();
+    assert_eq!(static_analysis::check(&out), Vec::new());
     let tmp = out.eval();
     let val: &NixValue = tmp.as_ref().unwrap().borrow();
     val.clone()
+}
+
+#[allow(dead_code)]
+/// Returns the errors found by static_analysis::check.
+///
+/// As dealing with ranges is cumbersome, returns a map "text matched by the range" => "error text"
+fn static_analysis(code: &str) -> HashMap<&str, String> {
+    let ast = rnix::parse(&code);
+    let root = ast.root().inner().unwrap();
+    let path = std::env::current_dir().unwrap();
+    let out = Expr::parse(root, Gc::new(Scope::Root(path))).unwrap();
+    let errors = static_analysis::check(&out);
+    let mut res = HashMap::new();
+    for error in errors {
+        let range = error.range.start().into()..error.range.end().into();
+        let text = code.get(range).unwrap();
+        res.insert(text, error.kind.to_string());
+    }
+    res
 }
 
 use super::*;
@@ -47,6 +71,30 @@ fn order_of_operations() {
 fn div_int_by_float() {
     let code = "1 / 2.0";
     assert_eq!(eval(code).as_float().unwrap(), 0.5);
+}
+
+#[test]
+fn unbound_simple() {
+    let code = "1+x";
+    assert_eq!(static_analysis(code), hashmap!{ "x" => "identifier x is unbound".into() });
+}
+
+#[test]
+fn with_conservative_binding_analysis() {
+    let code = "1 + with import <nixpkgs> {}; some_attr";
+    assert_eq!(static_analysis(code), hashmap!{});
+}
+
+#[test]
+fn binding_analysis_ignores_attrset_selection() {
+    let code = "1 + rec { x = 1; y = x; }.y";
+    assert_eq!(static_analysis(code), hashmap!{});
+}
+
+#[test]
+fn unbound_attrset() {
+    let code = "1 + rec { x = 1; y = x; z = t; }.y";
+    assert_eq!(static_analysis(code), hashmap!{"t" => "identifier t is unbound".into()});
 }
 
 #[cfg(test)]

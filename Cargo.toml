@@ -27,6 +27,7 @@ nixpkgs-fmt-rnix = "1.2.0"
 
 [dev-dependencies]
 stoppable_thread = "0.2.1"
+maplit = "1"
 
 [features]
 
