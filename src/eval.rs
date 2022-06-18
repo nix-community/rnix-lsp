@@ -75,6 +75,28 @@ pub enum ExprSource {
     Paren {
         inner: ExprResultBox,
     },
+    /// `{ arg1, ... } @ args` in a lambda definition `{ arg1, ... } @ args: body`
+    Pattern {
+        /// for `{ arg1, arg2 ? default }: body`, a map `"arg1" => None, "arg2" => default`
+        entries: HashMap<String, Option<ExprResultGc>>,
+        /// whether the patter is incomplete (contains `...`)
+        ellipsis: bool,
+        /// the identifier bound by `@`
+        at: Option<String>,
+    },
+    Lambda {
+        /// A `Pattern` or an `Identifier`
+        arg: ExprResultBox,
+        /// the body of the function
+        body: ExprResultBox,
+    },
+    /// Function application: `f x`
+    Apply {
+        /// the function `f` applied
+        function: ExprResultBox,
+        /// the argument `x`
+        arg: ExprResultBox,
+    },
     BinOp {
         op: BinOpKind,
         left: ExprResultBox,
@@ -249,6 +271,9 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::Apply { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function application is not implemented".to_string()))),
+            ExprSource::Lambda { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function is not implemented".to_string()))),
+            ExprSource::Pattern { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function argument pattern is not implemented".to_string()))),
             ExprSource::AttrSet { .. } => Err(EvalError::Internal(InternalError::Unexpected(
                 "eval_uncached ExprSource::Map should be unreachable, ".to_string()
                     + "since the Expr::value should be initialized at creation",
@@ -298,6 +323,17 @@ impl Expr {
             ExprSource::Implication { left, right } => vec![left, right],
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
+            ExprSource::Apply { function, arg } => vec![function, arg],
+            ExprSource::Pattern { entries, .. } => {
+                let mut res = vec![];
+                for entry in entries.values() {
+                    if let Some(Ok(default)) = entry {
+                        res.push(default.as_ref());
+                    }
+                }
+                return res
+            },
+            ExprSource::Lambda { arg, body } => vec![arg, body],
             ExprSource::AttrSet {
                 definitions,
             } => {

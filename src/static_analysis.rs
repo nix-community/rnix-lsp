@@ -4,7 +4,7 @@ use rnix::TextRange;
 
 use crate::{
     error::{EvalError, Located, ValueError},
-    eval::{Expr, ExprSource},
+    eval::{Expr, ExprSource}, scope::Definition,
 };
 
 /// If this node is an identifier, should it be a variable name ?
@@ -64,11 +64,22 @@ fn visit(acc: &mut Vec<Located<ValueError>>, node: &Expr, ident_ctx: Ident) {
             visit_result(acc, from, &node.range, IsVariable);
             visit_result(acc, index, &node.range, IsNotVariable);
         }
+        ExprSource::Lambda { arg, body } => {
+            visit_result(acc, body, &node.range, IsVariable);
+            visit_result(acc, arg, &node.range, IsNotVariable);
+        }
+        ExprSource::Pattern { entries, .. } => {
+            for i in entries.values() {
+                if let Some(default) = i {
+                    visit_result(acc, default, &node.range, IsVariable);
+                }
+            }
+        },
         ExprSource::Ident { name } => {
             if ident_ctx == IsVariable {
                 if let Some(range) = &node.range {
                     // check that the variable is bound
-                    if node.scope.get_let(name).is_none() {
+                    if matches!(node.scope.get_definition(name), Definition::Unbound) {
                         acc.push(Located {
                             range: range.clone(),
                             kind: ValueError::UnboundIdentifier(name.clone()),
@@ -84,6 +95,7 @@ fn visit(acc: &mut Vec<Located<ValueError>>, node: &Expr, ident_ctx: Ident) {
         | ExprSource::Paren { inner } => visit_result(acc, inner, &node.range, IsVariable),
         ExprSource::BinOp { left, right, .. }
         | ExprSource::BoolAnd { left, right }
+        | ExprSource::Apply { function: left, arg: right }
         | ExprSource::Implication { left, right }
         | ExprSource::BoolOr { left, right } => {
             visit_result(acc, left, &node.range, IsVariable);

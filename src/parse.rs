@@ -11,6 +11,7 @@ use crate::{
     scope::Scope,
 };
 use gc::{Finalize, Gc, GcCell, Trace};
+use maplit::hashset;
 use rnix::types::{EntryHolder, TokenWrapper, TypedNode};
 use rnix::TextRange;
 use rnix::{
@@ -371,6 +372,79 @@ impl Expr {
                     scope: new_scope,
                 });
             }
+            ParsedType::Apply(apply) => {
+                ExprSource::Apply {
+                    function: recurse_box(apply.lambda().ok_or(ERR_PARSING)?),
+                    arg: recurse_box(apply.value().ok_or(ERR_PARSING)?),
+                }
+            },
+            ParsedType::Pattern(pattern) => {
+                let mut names = std::collections::HashSet::new();
+                let at = match pattern.at() {
+                    None => None,
+                    Some(at) => {
+                        let string = at.as_str().to_string();
+                        names.insert(string.clone());
+                        Some(string)
+                    }
+                };
+                for entry in pattern.entries() {
+                    match entry.name() {
+                        None => {
+                            return Err(EvalError::Internal(InternalError::Unimplemented("none name for pattern entry".to_string())));
+                        }
+                        Some(name) => {
+                            names.insert(name.as_str().to_string());
+                        },
+                    }
+                }
+                let new_scope = Gc::new(Scope::FunctionArguments {
+                    parent: scope.clone(),
+                    names: GcCell::new(names),
+                });
+                let mut entries = HashMap::new();
+                for entry in pattern.entries() {
+                    if let Some(name) = entry.name() {
+                        let default = entry.default().map(|default| {
+                            Expr::parse(default, new_scope.clone()).map(|x| Gc::new(x))
+                        });
+                        if entries.insert(name.as_str().to_string(), default).is_some() {
+                            return Err(EvalError::Value(ValueError::AttrAlreadyDefined(format!(
+                                "function has duplicate formal argument {}",
+                                name.as_str()
+                            ))));
+                        }
+                    }
+                }
+                return Ok(Expr {
+                    value: GcCell::new(None),
+                    source: ExprSource::Pattern {
+                        entries,
+                        ellipsis: pattern.ellipsis(),
+                        at,
+                    },
+                    range,
+                    scope: new_scope,
+                });
+            }
+            ParsedType::Lambda(fun) => {
+                let arg = recurse_box(fun.arg().ok_or(ERR_PARSING)?)?;
+                let new_scope = match &arg.source {
+                    ExprSource::Ident { name } => {
+                        Gc::new(Scope::FunctionArguments {
+                            parent: scope.clone(),
+                            names: GcCell::new(hashset!{ name.as_str().to_string() }),
+                        })
+                    },
+                    ExprSource::Pattern { .. } => arg.scope.clone(),
+                    _ => return Err(ERR_PARSING),
+                };
+                let body = Expr::parse(fun.body().ok_or(ERR_PARSING)?, new_scope.clone()).map(Box::new);
+                ExprSource::Lambda {
+                        arg: Ok(arg),
+                        body
+                }
+            },
             node => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                     "rnix-parser node {:?}",

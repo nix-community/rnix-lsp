@@ -119,6 +119,12 @@ fn bound_let() {
 }
 
 #[test]
+fn bound_builtins() {
+    let code = "map";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
 fn unbound_let_body() {
     let code = "let x = 1; in x + y";
     assert_eq!(
@@ -146,6 +152,48 @@ fn bound_let_fixpoint() {
 fn bound_let_recursive() {
     let code = "let y = x; x = 1; in x - y";
     assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_function_body() {
+    let code = "let f = x: x + y; in f 1";
+    assert_eq!(static_analysis(code), hashmap! {"y" => "identifier y is unbound".into()});
+}
+
+#[test]
+fn unbound_function_body_pattern() {
+    let code = "let f = {x}: x + y; in f { x = 1; }";
+    assert_eq!(static_analysis(code), hashmap! {"y" => "identifier y is unbound".into()});
+}
+
+#[test]
+fn unbound_function_pattern_default() {
+    let code = "let x = 1; f = {y ? x + z }: x + y; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {"z" => "identifier z is unbound".into()});
+}
+
+#[test]
+fn bound_function_pattern_default_seq() {
+    let code = "let x = 1; f = {y ? x, z ? y }: x + y + z; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_function_at() {
+    let code = "let f = {y ? args, ... }@args: { inherit args y; }; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_function_default_loop() {
+    let code = "let f = {y ? y, ... }: y; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_config() {
+    let code = "{config, pkgs, ...}: { config = { services.xserver.enable = lib.mkForce true; }; }";
+    assert_eq!(static_analysis(code), hashmap! {"lib" => "identifier lib is unbound".into()});
 }
 
 #[cfg(test)]

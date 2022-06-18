@@ -24,10 +24,10 @@ rnix = "0.10.2"
 serde = "1.0.138"
 serde_json = "1.0.82"
 nixpkgs-fmt-rnix = "1.2.0"
+maplit = "1"
 
 [dev-dependencies]
 stoppable_thread = "0.2.1"
-maplit = "1"
 
 [features]
 
