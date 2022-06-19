@@ -113,6 +113,15 @@ fn unbound_attrset() {
 }
 
 #[test]
+fn unbound_list() {
+    let code = "[ 1 t ]";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"t" => "identifier t is unbound".into()}
+    );
+}
+
+#[test]
 fn bound_let() {
     let code = "let x = 1; y = x; in x + y";
     assert_eq!(static_analysis(code), hashmap! {});
@@ -194,6 +203,12 @@ fn bound_function_default_loop() {
 fn unbound_config() {
     let code = "{config, pkgs, ...}: { config = { services.xserver.enable = lib.mkForce true; }; }";
     assert_eq!(static_analysis(code), hashmap! {"lib" => "identifier lib is unbound".into()});
+}
+
+#[test]
+fn unbound_config2() {
+    let code = "{config, pkgs, ...}: { config = { environment.systemPackages = [ (lib.hiPrio pkgs.sl) firefox ]; }";
+    assert_eq!(static_analysis(code), hashmap! {"lib" => "identifier lib is unbound".into(), "firefox" => "identifier firefox is unbound".into()});
 }
 
 #[cfg(test)]

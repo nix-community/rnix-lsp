@@ -75,6 +75,11 @@ fn visit(acc: &mut Vec<Located<ValueError>>, node: &Expr, ident_ctx: Ident) {
                 }
             }
         },
+        ExprSource::List { elements } => {
+            for i in elements.iter() {
+                visit_result(acc, i, &node.range, IsVariable);
+            }
+        },
         ExprSource::Ident { name } => {
             if ident_ctx == IsVariable {
                 if let Some(range) = &node.range {

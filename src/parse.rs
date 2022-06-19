@@ -445,6 +445,11 @@ impl Expr {
                         body
                 }
             },
+            ParsedType::List(list) => {
+                ExprSource::List {
+                    elements: list.items().map(recurse_gc).collect()
+                }
+            }
             node => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                     "rnix-parser node {:?}",

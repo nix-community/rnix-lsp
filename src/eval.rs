@@ -120,6 +120,9 @@ pub enum ExprSource {
     UnaryNegate {
         value: ExprResultBox,
     },
+    List {
+        elements: Vec<ExprResultGc>,
+    },
 }
 
 /// Syntax node that has context and can be lazily evaluated.
@@ -271,6 +274,7 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::List { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating lists is not implemented".to_string()))),
             ExprSource::Apply { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function application is not implemented".to_string()))),
             ExprSource::Lambda { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function is not implemented".to_string()))),
             ExprSource::Pattern { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function argument pattern is not implemented".to_string()))),
@@ -334,6 +338,15 @@ impl Expr {
                 return res
             },
             ExprSource::Lambda { arg, body } => vec![arg, body],
+            ExprSource::List { elements } => {
+                let mut res = vec![];
+                for entry in elements.iter() {
+                    if let Ok(default) = entry {
+                        res.push(default.as_ref());
+                    }
+                }
+                return res
+            }
             ExprSource::AttrSet {
                 definitions,
             } => {
