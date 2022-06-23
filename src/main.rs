@@ -209,16 +209,40 @@ impl App {
             let document_links = self.document_links(&params).unwrap_or_default();
             self.reply(Response::new_ok(id, document_links));
         } else if let Some((id, params)) = cast::<Formatting>(&mut req) {
-            let changes = if let Some((ast, code, _)) = self.files.get(&params.text_document.uri) {
-                let fmt = nixpkgs_fmt::reformat_node(&ast.node());
-                vec![TextEdit {
-                    range: utils::range(&code, TextRange::up_to(ast.node().text().len())),
-                    new_text: fmt.text().to_string(),
-                }]
+            if let Some((ast, code, _)) = self.files.get(&params.text_document.uri) {
+                let node = ast.node();
+                let range = utils::range(&code, TextRange::up_to(node.text().len()));
+                if cfg!(feature = "alejandra") {
+                    #[cfg(feature = "alejandra")]
+                    match alejandra::format::in_memory(
+                        params.text_document.uri.to_string(),
+                        code.to_string(),
+                    ) {
+                        (alejandra::format::Status::Changed(true), new_text) => {
+                            self.reply(Response::new_ok(id, vec![TextEdit { range, new_text }]))
+                        }
+                        (alejandra::format::Status::Changed(false), _) => {
+                            self.reply(Response::new_ok(id, ()))
+                        }
+                        (alejandra::format::Status::Error(e), _) => {
+                            self.reply(Response::new_err(id, ErrorCode::InternalError as i32, e))
+                        }
+                    }
+                } else if cfg!(feature = "nixpkgs-fmt-rnix") {
+                    #[cfg(feature = "nixpkgs-fmt-rnix")]
+                    self.reply(Response::new_ok(
+                        id,
+                        vec![TextEdit {
+                            range,
+                            new_text: nixpkgs_fmt::reformat_node(&node).text().to_string(),
+                        }],
+                    ));
+                } else {
+                    self.reply(Response::new_ok(id, ()))
+                }
             } else {
-                Vec::new()
-            };
-            self.reply(Response::new_ok(id, changes));
+                self.reply(Response::new_ok(id, ()))
+            }
         } else if let Some((id, params)) = cast::<HoverRequest>(&mut req) {
             if let Some((range, markdown)) = self.hover(params) {
                 self.reply(Response::new_ok(
