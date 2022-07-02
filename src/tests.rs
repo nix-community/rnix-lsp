@@ -200,6 +200,22 @@ fn bound_function_default_loop() {
 }
 
 #[test]
+fn unbound_string() {
+    let code = r#" "foo${bar}baz" "#;
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
+fn unbound_multiline_string() {
+    let code = r#" ''
+        foo
+        ${bar}
+    baz''
+"#;
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
 fn unbound_config() {
     let code = "{config, pkgs, ...}: { config = { services.xserver.enable = lib.mkForce true; }; }";
     assert_eq!(static_analysis(code), hashmap! {"lib" => "identifier lib is unbound".into()});

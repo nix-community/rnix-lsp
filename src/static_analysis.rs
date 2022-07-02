@@ -4,7 +4,7 @@ use rnix::TextRange;
 
 use crate::{
     error::{EvalError, Located, ValueError},
-    eval::{Expr, ExprSource}, scope::Definition,
+    eval::{Expr, ExprSource, StringPartSource}, scope::Definition,
 };
 
 /// If this node is an identifier, should it be a variable name ?
@@ -72,6 +72,13 @@ fn visit(acc: &mut Vec<Located<ValueError>>, node: &Expr, ident_ctx: Ident) {
             for i in entries.values() {
                 if let Some(default) = i {
                     visit_result(acc, default, &node.range, IsVariable);
+                }
+            }
+        },
+        ExprSource::String { parts } => {
+            for i in parts.iter() {
+                if let StringPartSource::Expression(expr) = i {
+                    visit_result(acc, expr, &node.range, IsVariable);
                 }
             }
         },

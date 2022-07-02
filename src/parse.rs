@@ -4,7 +4,7 @@ use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 use crate::error::{EvalError, InternalError, ValueError, ERR_PARSING};
-use crate::eval::merge_set_literal;
+use crate::eval::{merge_set_literal, StringPartSource};
 use crate::value::*;
 use crate::{
     eval::{Expr, ExprSource},
@@ -13,7 +13,7 @@ use crate::{
 use gc::{Finalize, Gc, GcCell, Trace};
 use maplit::hashset;
 use rnix::types::{EntryHolder, TokenWrapper, TypedNode};
-use rnix::TextRange;
+use rnix::{TextRange, StrPart, SyntaxKind};
 use rnix::{
     types::{ParsedType, Wrapper},
     SyntaxNode,
@@ -449,6 +449,24 @@ impl Expr {
                 ExprSource::List {
                     elements: list.items().map(recurse_gc).collect()
                 }
+            }
+            ParsedType::Str(string) => {
+                let mut parts = Vec::new();
+                for part in string.parts() {
+                    match part {
+                        StrPart::Literal(l) => {
+                            parts.push(StringPartSource::Literal(l));
+                        },
+                        StrPart::Ast(node) => {
+                            debug_assert_eq!(node.kind(), SyntaxKind::NODE_STRING_INTERPOL);
+                            // I only expect one child, but just in case...
+                            for child in node.children() {
+                                parts.push(StringPartSource::Expression(recurse_box(child)));
+                            }
+                        }
+                    };
+                }
+                ExprSource::String { parts }
             }
             node => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(

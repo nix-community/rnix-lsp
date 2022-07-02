@@ -8,6 +8,17 @@ use rnix::TextRange;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 
+/// A string part
+///
+/// in `"foo${bar}baz"`, parts are `Literal("foo")`, `Expression(bar)` and `Literal("baz")`
+#[derive(Debug, Trace, Finalize)]
+pub enum StringPartSource {
+    /// Literal string
+    Literal(String),
+    /// Interpolated expression
+    Expression(ExprResultBox),
+}
+
 // Expressions like BinOp have the only copy of their Expr children,
 // so they use ExprResultBox. Expressions like Map, which may have
 // contents copied in multiple places, need ExprResultGc.
@@ -71,6 +82,11 @@ pub enum ExprSource {
     },
     Literal {
         value: NixValue,
+    },
+    /// A string, possibly interpolated
+    String {
+        /// interpolated and literal parts of this string
+        parts: Vec<StringPartSource>,
     },
     Paren {
         inner: ExprResultBox,
@@ -274,6 +290,7 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::String { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating strings is not implemented".to_string()))),
             ExprSource::List { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating lists is not implemented".to_string()))),
             ExprSource::Apply { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function application is not implemented".to_string()))),
             ExprSource::Lambda { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function is not implemented".to_string()))),
@@ -343,6 +360,15 @@ impl Expr {
                 for entry in elements.iter() {
                     if let Ok(default) = entry {
                         res.push(default.as_ref());
+                    }
+                }
+                return res
+            }
+            ExprSource::String { parts } => {
+                let mut res = vec![];
+                for entry in parts.iter() {
+                    if let StringPartSource::Expression(Ok(inner)) = entry {
+                        res.push(inner.as_ref());
                     }
                 }
                 return res
