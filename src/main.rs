@@ -36,7 +36,7 @@ use dirs::home_dir;
 use eval::Expr;
 use gc::Gc;
 use log::{error, trace, warn};
-use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
+use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response, ExtractError};
 use lsp_types::{
     notification::{Notification as _, *},
     request::{Request as RequestTrait, *},
@@ -80,7 +80,7 @@ fn real_main() -> Result<(), Error> {
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
-                change: Some(TextDocumentSyncKind::Incremental),
+                change: Some(TextDocumentSyncKind::INCREMENTAL),
                 ..TextDocumentSyncOptions::default()
             },
         )),
@@ -174,8 +174,9 @@ impl App {
         {
             match req.take().unwrap().extract::<Kind::Params>(Kind::METHOD) {
                 Ok(value) => Some(value),
-                Err(owned) => {
-                    *req = Some(owned);
+                Err(err @ ExtractError::JsonError { .. }) => panic!("{:?}", err),
+                Err(ExtractError::MethodMismatch(value)) => {
+                    *req = Some(value);
                     None
                 }
             }
@@ -596,7 +597,7 @@ impl App {
             if let Some(node_range) = node_range {
                 diagnostics.push(Diagnostic {
                     range: utils::range(code, node_range),
-                    severity: Some(DiagnosticSeverity::Error),
+                    severity: Some(DiagnosticSeverity::ERROR),
                     message: err.to_string(),
                     ..Diagnostic::default()
                 });
