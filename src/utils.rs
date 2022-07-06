@@ -325,6 +325,8 @@ pub fn selection_ranges(root: &SyntaxNode, content: &str, pos: Position) -> Opti
     root.map(|b| *b)
 }
 
+/// Convert an AtomEdit to a tuple whose first element is `atom_edit`'s delete range, and whose
+/// second element is a String with the same contents as `atom_edit`'s insert value.
 pub fn atom_edit_to_tuple(atom_edit: AtomEdit) -> (ops::Range<usize>, String) {
     let r: std::ops::Range<usize> = atom_edit.delete.start().into()..atom_edit.delete.end().into();
     (r, atom_edit.insert.to_string())
@@ -346,6 +348,7 @@ pub fn tuple_to_text_edit(tup: (ops::Range<usize>, String), code: &str) -> TextE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use smol_str::SmolStr;
 
     #[test]
     fn test_get_offset_from_nix_expr() {
@@ -486,5 +489,35 @@ mod tests {
         assert!(ident.is_some());
         let ident_ = ident.unwrap();
         assert_eq!(vec!["a"], ident_.path);
+    }
+
+    #[test]
+    fn test_atom_edit_to_tuple() {
+        let atom_edits = vec![
+            AtomEdit {
+                delete: TextRange::new(TextSize::from(5), TextSize::from(9)),
+                insert: SmolStr::from("hello world"),
+            },
+            AtomEdit {
+                delete: TextRange::new(TextSize::from(11), TextSize::from(11)),
+                insert: SmolStr::from("the quick brown fox"),
+            },
+            AtomEdit {
+                delete: TextRange::new(TextSize::from(115698), TextSize::from(126498)),
+                insert: SmolStr::from("a string"),
+            },
+        ];
+        let expected = vec![
+            (5..9, String::from("hello world")),
+            (11..11, String::from("the quick brown fox")),
+            (115698..126498, String::from("a string")),
+        ];
+        assert_eq!(
+            atom_edits
+                .into_iter()
+                .map(atom_edit_to_tuple)
+                .collect::<Vec<(ops::Range<usize>, String)>>(),
+            expected
+        );
     }
 }

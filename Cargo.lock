@@ -476,6 +476,7 @@ dependencies = [
  "rnix",
  "serde",
  "serde_json",
+ "smol_str",
  "stoppable_thread",
  "textedit-merge",
 ]
