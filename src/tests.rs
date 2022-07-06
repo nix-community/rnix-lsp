@@ -264,6 +264,138 @@ fn test_rename() {
 }
 
 #[test]
+fn test_reformat_integration() {
+    let urlpath = "file:///code/default.nix";
+    let input = r#"{
+  f = { x
+  , y
+      }: body;
+
+  testAllTrue = expr: {inherit expr;expected=map (x: true) expr; };
+}
+"#;
+    let (client, handle) = prepare_integration_test(input, urlpath);
+
+    let r = Request {
+        id: RequestId::from(23),
+        method: String::from("textDocument/formatting"),
+        params: json!({
+            "textDocument": {
+                "uri": "file:///code/default.nix",
+            },
+            "options": {
+                // Tab size isn't respected yet
+                "tabSize": 37,
+                "insertSpaces": true
+            }
+        })
+    };
+    client.sender.send(r.into()).expect("Cannot send reformat request!");
+
+    expect_diagnostics(&client);
+
+    let msg = recv_msg(&client);
+    let hover_json = coerce_response(msg).result.expect("Expected reformat response!");
+    let edits = hover_json;
+    let expected = json!([
+        {
+            "newText": "\n    ",
+            "range": {
+                "start": {
+                    "character": 5,
+                    "line": 1
+                },
+                "end": {
+                    "character": 6,
+                    "line": 1
+                }
+            }
+        },
+        {
+            "newText": "\n    ",
+            "range": {
+                "start": {
+                    "character": 9,
+                    "line": 1
+                },
+                "end": {
+                    "character": 2,
+                    "line": 2
+                }
+            }
+        },
+        {
+            "newText": "\n    ",
+            "range": {
+                "start": {
+                    "character": 5,
+                    "line": 2
+                },
+                "end": {
+                    "character": 6,
+                    "line": 3
+                }
+            }
+        },
+        {
+            "newText": " ",
+            "range": {
+                "start": {
+                    "character": 23,
+                    "line": 5
+                },
+                "end": {
+                    "character": 23,
+                    "line": 5
+                }
+            }
+        },
+        {
+            "newText": " ",
+            "range": {
+                "start": {
+                    "character": 36,
+                    "line": 5
+                },
+                "end": {
+                    "character": 36,
+                    "line": 5
+                }
+            }
+        },
+        {
+            "newText": " ",
+            "range": {
+                "start": {
+                    "character": 44,
+                    "line": 5
+                },
+                "end": {
+                    "character": 44,
+                    "line": 5
+                }
+            }
+        },
+        {
+            "newText": " ",
+            "range": {
+                "start": {
+                    "character": 45,
+                    "line": 5
+                },
+                "end": {
+                    "character": 45,
+                    "line": 5
+                }
+            }
+        }
+    ]);
+    assert_eq!(edits, expected);
+
+    handle.stop().join().expect("Failed to gracefully terminate LSP worker thread!");
+}
+
+#[test]
 fn attrs_simple() {
     let code = "{ x = 1; y = 2; }.x";
     assert_eq!(eval(code).as_int().unwrap(), 1);
