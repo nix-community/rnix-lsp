@@ -95,12 +95,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "328b822bdcba4d4e402be8d9adb6eebf269f969f8eadef977a553ff3c4fbcb58"
 
 [[package]]
-name = "countme"
-version = "3.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7704b5fdd17b18ae31c4c1da5a2e0305a2bf17b5249300a9ee9ed7b72114c636"
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -240,12 +234,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
 
 [[package]]
-name = "hashbrown"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db0d4cf898abf0081f964436dc980e96670a0f36863e4b83aaacdb65c9d7ccc3"
-
-[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -372,7 +360,7 @@ dependencies = [
  "crossbeam-channel 0.3.9",
  "ignore",
  "rnix",
- "rowan 0.12.6",
+ "rowan",
  "serde_json",
  "smol_str",
 ]
@@ -460,7 +448,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8024a523e8836f1a5d051203dc00d833357fee94e351b51348dfaeca5364daa9"
 dependencies = [
  "cbitset",
- "rowan 0.12.6",
+ "rowan",
  "smol_str",
 ]
 
@@ -479,7 +467,6 @@ dependencies = [
  "nixpkgs-fmt-rnix",
  "regex",
  "rnix",
- "rowan 0.15.5",
  "serde",
  "serde_json",
  "stoppable_thread",
@@ -491,24 +478,11 @@ version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1b36e449f3702f3b0c821411db1cbdf30fb451726a9456dce5dabcd44420043"
 dependencies = [
- "countme 2.0.4",
- "hashbrown 0.9.1",
+ "countme",
+ "hashbrown",
  "memoffset",
  "rustc-hash",
  "serde",
- "text-size",
-]
-
-[[package]]
-name = "rowan"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce1f383129e417a6265b16ed78e6e9307748f0863b2ba75f78ff14717db5b017"
-dependencies = [
- "countme 3.0.1",
- "hashbrown 0.12.1",
- "memoffset",
- "rustc-hash",
  "text-size",
 ]
 

@@ -21,7 +21,6 @@ lsp-server = "0.6.0"
 lsp-types = { version = "0.93.0", features = ["proposed"] }
 regex = "1.5.6"
 rnix = "0.10.2"
-rowan = "0.15.5"
 serde = "1.0.138"
 serde_json = "1.0.82"
 nixpkgs-fmt-rnix = "1.2.0"
