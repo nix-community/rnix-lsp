@@ -23,7 +23,7 @@ regex = "1.5.6"
 rnix = "0.10.2"
 serde = "1.0.138"
 serde_json = "1.0.82"
-nixpkgs-fmt = { git = "https://github.com/mtoohey31/nixpkgs-fmt", branch = "feat/reformat-edits" }
+nixpkgs-fmt = { git = "https://github.com/nix-community/nixpkgs-fmt" }
 smol_str = "0.1.17"
 textedit-merge = "0.2.1"
 
