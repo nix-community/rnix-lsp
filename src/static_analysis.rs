@@ -68,6 +68,10 @@ fn visit(acc: &mut Vec<Located<ValueError>>, node: &Expr, ident_ctx: Ident) {
             visit_result(acc, body, &node.range, IsVariable);
             visit_result(acc, arg, &node.range, IsNotVariable);
         }
+        ExprSource::With { inner, body } => {
+            visit_result(acc, body, &node.range, IsVariable);
+            visit_result(acc, inner, &node.range, IsVariable);
+        }
         ExprSource::Pattern { entries, .. } => {
             for i in entries.values() {
                 if let Some(default) = i {

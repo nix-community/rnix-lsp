@@ -79,7 +79,7 @@ pub struct Located<T: Error + Clone + Trace + Finalize> {
     #[unsafe_ignore_trace]
     pub range: TextRange,
     /// The nature of the issue
-    pub kind: T
+    pub kind: T,
 }
 
 impl<T: Error + Clone + Trace + Finalize> std::error::Error for Located<T> {}
@@ -117,7 +117,9 @@ impl std::fmt::Display for ValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             ValueError::DivisionByZero => write!(f, "division by zero"),
-            ValueError::AttrAlreadyDefined(name) => write!(f, "attribute `{}` defined more than once", name),
+            ValueError::AttrAlreadyDefined(name) => {
+                write!(f, "attribute `{}` defined more than once", name)
+            }
             ValueError::TypeError(msg) => write!(f, "{}", msg),
             ValueError::UnboundIdentifier(name) => write!(f, "identifier {} is unbound", name),
         }

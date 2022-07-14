@@ -32,6 +32,16 @@ pub enum Scope {
         /// names bound
         names: GcCell<HashSet<String>>,
     },
+    /// Binding introduced by `with`
+    With {
+        /// parent scope
+        ///
+        /// This is a synctatical relation: bindings introduced by with are always resolved after
+        /// other bindings, so this scope might be shadowed by its parent.
+        parent: Gc<Scope>,
+        /// the expression `e` in `with e;`
+        contents: Gc<Expr>,
+    },
     None,
 }
 
@@ -39,7 +49,6 @@ pub enum Scope {
 #[derive(Debug, Clone)]
 pub enum Definition {
     /// Might be either unbound or bound dynamically by `with`
-    #[allow(dead_code)]
     PossiblyDynamic,
     /// Here is the expression that defines this variable
     Expression(Gc<Expr>),
@@ -83,136 +92,152 @@ impl Scope {
 
     /// how/if this name is defined
     pub fn get_definition(&self, name: &str) -> Definition {
-        match self {
-            Scope::None | Scope::Root(_) => Definition::Expression(Gc::new(Expr {
-                range: None,
-                value: GcCell::new(None),
-                source: ExprSource::Literal {
-                    // TODO: add more keys here, such as `builtins`
-                    value: match name {
-                        "true" => NixValue::Bool(true),
-                        "false" => NixValue::Bool(false),
-                        "null" => NixValue::Null,
-                        // list obtained with `nix repl` tab completion
-                        "abort"
-                        | "__add"
-                        | "__addErrorContext"
-                        | "__all"
-                        | "__any"
-                        | "__appendContext"
-                        | "__attrNames"
-                        | "__attrValues"
-                        | "baseNameOf"
-                        | "__bitAnd"
-                        | "__bitOr"
-                        | "__bitXor"
-                        | "builtins"
-                        | "__catAttrs"
-                        | "__ceil"
-                        | "__compareVersions"
-                        | "__concatLists"
-                        | "__concatMap"
-                        | "__concatStringsSep"
-                        | "__currentSystem"
-                        | "__currentTime"
-                        | "__deepSeq"
-                        | "derivation"
-                        | "derivationStrict"
-                        | "dirOf"
-                        | "__div"
-                        | "__elem"
-                        | "__elemAt"
-                        | "fetchGit"
-                        | "fetchMercurial"
-                        | "fetchTarball"
-                        | "fetchTree"
-                        | "__fetchurl"
-                        | "__filter"
-                        | "__filterSource"
-                        | "__findFile"
-                        | "__floor"
-                        | "__foldl'"
-                        | "__fromJSON"
-                        | "fromTOML"
-                        | "__functionArgs"
-                        | "__genericClosure"
-                        | "__genList"
-                        | "__getAttr"
-                        | "__getContext"
-                        | "__getEnv"
-                        | "__groupBy"
-                        | "__hasAttr"
-                        | "__hasContext"
-                        | "__hashFile"
-                        | "__hashString"
-                        | "__head"
-                        | "import"
-                        | "__intersectAttrs"
-                        | "__isAttrs"
-                        | "__isBool"
-                        | "__isFloat"
-                        | "__isFunction"
-                        | "__isInt"
-                        | "__isList"
-                        | "isNull"
-                        | "__isPath"
-                        | "__isString"
-                        | "__langVersion"
-                        | "__length"
-                        | "__lessThan"
-                        | "__listToAttrs"
-                        | "map"
-                        | "__mapAttrs"
-                        | "__match"
-                        | "__mul"
-                        | "__nixPath"
-                        | "__nixVersion"
-                        | "__parseDrvName"
-                        | "__partition"
-                        | "__path"
-                        | "__pathExists"
-                        | "placeholder"
-                        | "__readDir"
-                        | "__readFile"
-                        | "removeAttrs"
-                        | "__replaceStrings"
-                        | "scopedImport"
-                        | "__seq"
-                        | "__sort"
-                        | "__split"
-                        | "__splitVersion"
-                        | "__storeDir"
-                        | "__storePath"
-                        | "__stringLength"
-                        | "__sub"
-                        | "__substring"
-                        | "__tail"
-                        | "throw"
-                        | "__toFile"
-                        | "__toJSON"
-                        | "__toPath"
-                        | "toString"
-                        | "__toXML"
-                        | "__tryEval"
-                        | "__typeOf"
-                        | "__unsafeDiscardOutputDependency"
-                        | "__unsafeDiscardStringContext"
-                        | "__unsafeGetAttrPos"
-                        | "__zipAttrsWith" => return Definition::Ambient,
-                        _ => return Definition::Unbound,
+        fn get_definition_rec(scope: &Scope, name: &str, possibly_dynamic: bool) -> Definition {
+            match scope {
+                Scope::None | Scope::Root(_) => Definition::Expression(Gc::new(Expr {
+                    range: None,
+                    value: GcCell::new(None),
+                    source: ExprSource::Literal {
+                        // TODO: add more keys here, such as `builtins`
+                        value: match name {
+                            "true" => NixValue::Bool(true),
+                            "false" => NixValue::Bool(false),
+                            "null" => NixValue::Null,
+                            // list obtained with `nix repl` tab completion
+                            "abort"
+                            | "__add"
+                            | "__addErrorContext"
+                            | "__all"
+                            | "__any"
+                            | "__appendContext"
+                            | "__attrNames"
+                            | "__attrValues"
+                            | "baseNameOf"
+                            | "__bitAnd"
+                            | "__bitOr"
+                            | "__bitXor"
+                            | "builtins"
+                            | "__catAttrs"
+                            | "__ceil"
+                            | "__compareVersions"
+                            | "__concatLists"
+                            | "__concatMap"
+                            | "__concatStringsSep"
+                            | "__currentSystem"
+                            | "__currentTime"
+                            | "__deepSeq"
+                            | "derivation"
+                            | "derivationStrict"
+                            | "dirOf"
+                            | "__div"
+                            | "__elem"
+                            | "__elemAt"
+                            | "fetchGit"
+                            | "fetchMercurial"
+                            | "fetchTarball"
+                            | "fetchTree"
+                            | "__fetchurl"
+                            | "__filter"
+                            | "__filterSource"
+                            | "__findFile"
+                            | "__floor"
+                            | "__foldl'"
+                            | "__fromJSON"
+                            | "fromTOML"
+                            | "__functionArgs"
+                            | "__genericClosure"
+                            | "__genList"
+                            | "__getAttr"
+                            | "__getContext"
+                            | "__getEnv"
+                            | "__groupBy"
+                            | "__hasAttr"
+                            | "__hasContext"
+                            | "__hashFile"
+                            | "__hashString"
+                            | "__head"
+                            | "import"
+                            | "__intersectAttrs"
+                            | "__isAttrs"
+                            | "__isBool"
+                            | "__isFloat"
+                            | "__isFunction"
+                            | "__isInt"
+                            | "__isList"
+                            | "isNull"
+                            | "__isPath"
+                            | "__isString"
+                            | "__langVersion"
+                            | "__length"
+                            | "__lessThan"
+                            | "__listToAttrs"
+                            | "map"
+                            | "__mapAttrs"
+                            | "__match"
+                            | "__mul"
+                            | "__nixPath"
+                            | "__nixVersion"
+                            | "__parseDrvName"
+                            | "__partition"
+                            | "__path"
+                            | "__pathExists"
+                            | "placeholder"
+                            | "__readDir"
+                            | "__readFile"
+                            | "removeAttrs"
+                            | "__replaceStrings"
+                            | "scopedImport"
+                            | "__seq"
+                            | "__sort"
+                            | "__split"
+                            | "__splitVersion"
+                            | "__storeDir"
+                            | "__storePath"
+                            | "__stringLength"
+                            | "__sub"
+                            | "__substring"
+                            | "__tail"
+                            | "throw"
+                            | "__toFile"
+                            | "__toJSON"
+                            | "__toPath"
+                            | "toString"
+                            | "__toXML"
+                            | "__tryEval"
+                            | "__typeOf"
+                            | "__unsafeDiscardOutputDependency"
+                            | "__unsafeDiscardStringContext"
+                            | "__unsafeGetAttrPos"
+                            | "__zipAttrsWith" => return Definition::Ambient,
+                            _ => {
+                                return if possibly_dynamic {
+                                    Definition::PossiblyDynamic
+                                } else {
+                                    Definition::Unbound
+                                }
+                            }
+                        },
                     },
+                    scope: Gc::new(Scope::None),
+                })),
+                Scope::Let { parent, contents } => match contents.borrow().get(name) {
+                    Some(x) => Definition::Expression(x.clone()),
+                    None => get_definition_rec(parent, name, possibly_dynamic),
                 },
-                scope: Gc::new(Scope::None),
-            })),
-            Scope::Let { parent, contents } => match contents.borrow().get(name) {
-                Some(x) => Definition::Expression(x.clone()),
-                None => parent.get_definition(name),
-            },
-            Scope::FunctionArguments { parent, names } => match names.borrow().get(name) {
-                Some(_) => Definition::Argument,
-                None => parent.get_definition(name),
-            },
+                Scope::FunctionArguments { parent, names } => match names.borrow().get(name) {
+                    Some(_) => Definition::Argument,
+                    None => get_definition_rec(parent, name, possibly_dynamic),
+                },
+                Scope::With {
+                    parent,
+                    contents: _,
+                } => {
+                    // trying to evaluate the content is not yet implemented
+                    get_definition_rec(parent, name, true)
+                }
+            }
         }
+        get_definition_rec(&self, name, false)
     }
 
     pub fn root_path(&self) -> Option<PathBuf> {
@@ -220,6 +245,7 @@ impl Scope {
             Scope::None => None,
             Scope::Root(path) => Some(path.clone()),
             Scope::Let { parent, .. } => parent.root_path(),
+            Scope::With { parent, .. } => parent.root_path(),
             Scope::FunctionArguments { parent, .. } => parent.root_path(),
         }
     }

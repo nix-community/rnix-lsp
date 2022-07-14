@@ -200,6 +200,21 @@ fn bound_function_default_loop() {
 }
 
 #[test]
+fn unbound_with() {
+    let code = "with foo; 1";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"foo" => "identifier foo is unbound".into()}
+    );
+}
+
+#[test]
+fn maybe_bound_with() {
+    let code = "let inf = x: inf x; in with inf {}; bar";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
 fn unbound_string() {
     let code = r#" "foo${bar}baz" "#;
     assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
@@ -224,7 +239,16 @@ fn unbound_config() {
 #[test]
 fn unbound_config2() {
     let code = "{config, pkgs, ...}: { config = { environment.systemPackages = [ (lib.hiPrio pkgs.sl) firefox ]; }";
-    assert_eq!(static_analysis(code), hashmap! {"lib" => "identifier lib is unbound".into(), "firefox" => "identifier firefox is unbound".into()});
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"lib" => "identifier lib is unbound".into(), "firefox" => "identifier firefox is unbound".into()}
+    );
+}
+
+#[test]
+fn maybe_bound_config3() {
+    let code = "{config, pkgs, ...}: { config = { environment.systemPackages = with pkgs; [ (lib.hiPrio sl) firefox ]; }";
+    assert_eq!(static_analysis(code), hashmap! {});
 }
 
 #[cfg(test)]

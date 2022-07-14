@@ -77,6 +77,13 @@ pub enum ExprSource {
     Dynamic {
         inner: ExprResultBox,
     },
+    /// `with inner; body`
+    With {
+        /// the expression used to provide bindings
+        inner: ExprResultGc,
+        /// the body evaluated with the new bindings
+        body: ExprResultBox,
+    },
     Ident {
         name: String,
     },
@@ -172,7 +179,7 @@ impl Expr {
                 // from an .eval(), which is probably infinite recursion.
                 return Err(EvalError::Internal(InternalError::Unimplemented(
                     "infinite recursion".to_string(),
-                )))
+                )));
             }
         };
         if let Some(ref value) = *value_borrow {
@@ -290,11 +297,24 @@ impl Expr {
                     }
                 }))
             }
-            ExprSource::String { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating strings is not implemented".to_string()))),
-            ExprSource::List { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating lists is not implemented".to_string()))),
-            ExprSource::Apply { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function application is not implemented".to_string()))),
-            ExprSource::Lambda { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function is not implemented".to_string()))),
-            ExprSource::Pattern { .. } => Err(EvalError::Internal(InternalError::Unimplemented("evaluating function argument pattern is not implemented".to_string()))),
+            ExprSource::With { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating with expressions is not implemented".to_string(),
+            ))),
+            ExprSource::String { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating strings is not implemented".to_string(),
+            ))),
+            ExprSource::List { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating lists is not implemented".to_string(),
+            ))),
+            ExprSource::Apply { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating function application is not implemented".to_string(),
+            ))),
+            ExprSource::Lambda { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating function is not implemented".to_string(),
+            ))),
+            ExprSource::Pattern { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating function argument pattern is not implemented".to_string(),
+            ))),
             ExprSource::AttrSet { .. } => Err(EvalError::Internal(InternalError::Unexpected(
                 "eval_uncached ExprSource::Map should be unreachable, ".to_string()
                     + "since the Expr::value should be initialized at creation",
@@ -345,6 +365,16 @@ impl Expr {
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
             ExprSource::Apply { function, arg } => vec![function, arg],
+            ExprSource::With { inner, body } => {
+                let mut res = vec![];
+                if let Ok(inner) = inner {
+                    res.push(inner.as_ref())
+                }
+                if let Ok(body) = body {
+                    res.push(body.as_ref())
+                }
+                return res
+            },
             ExprSource::Pattern { entries, .. } => {
                 let mut res = vec![];
                 for entry in entries.values() {

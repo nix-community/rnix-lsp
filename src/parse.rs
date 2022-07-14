@@ -439,15 +439,24 @@ impl Expr {
                     ExprSource::Pattern { .. } => arg.scope.clone(),
                     _ => return Err(ERR_PARSING),
                 };
-                let body = Expr::parse(fun.body().ok_or(ERR_PARSING)?, new_scope.clone()).map(Box::new);
-                ExprSource::Lambda {
-                        arg: Ok(arg),
-                        body
-                }
+                let body =
+                    Expr::parse(fun.body().ok_or(ERR_PARSING)?, new_scope.clone()).map(Box::new);
+                ExprSource::Lambda { arg: Ok(arg), body }
+            }
+            ParsedType::List(list) => ExprSource::List {
+                elements: list.items().map(recurse_gc).collect(),
             },
-            ParsedType::List(list) => {
-                ExprSource::List {
-                    elements: list.items().map(recurse_gc).collect()
+            ParsedType::With(with) => {
+                let inner = recurse_gc(with.namespace().ok_or(ERR_PARSING)?)?;
+                let new_scope = Gc::new(Scope::With {
+                    parent: scope.clone(),
+                    contents: inner.clone(),
+                });
+                let body =
+                    Expr::parse(with.body().ok_or(ERR_PARSING)?, new_scope.clone()).map(Box::new);
+                ExprSource::With {
+                    inner: Ok(inner),
+                    body,
                 }
             }
             ParsedType::Str(string) => {
