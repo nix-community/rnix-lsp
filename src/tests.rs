@@ -200,6 +200,24 @@ fn bound_function_default_loop() {
 }
 
 #[test]
+fn bound_or_default() {
+    let code = "let s = {}; n = 1; in s.a or n";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_or_default() {
+    let code = "let s = {}; in s.a or n";
+    assert_eq!(static_analysis(code), hashmap! {"n" => "identifier n is unbound".into()});
+}
+
+#[test]
+fn unbound_or_default_indexed() {
+    let code = "in s.a or 1";
+    assert_eq!(static_analysis(code), hashmap! {"s" => "identifier s is unbound".into()});
+}
+
+#[test]
 fn unbound_with() {
     let code = "with foo; 1";
     assert_eq!(

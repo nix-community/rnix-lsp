@@ -68,6 +68,10 @@ fn visit(acc: &mut Vec<Located<ValueError>>, node: &Expr, ident_ctx: Ident) {
             visit_result(acc, body, &node.range, IsVariable);
             visit_result(acc, arg, &node.range, IsNotVariable);
         }
+        ExprSource::OrDefault { index, default } => {
+            visit_result(acc, index, &node.range, IsVariable);
+            visit_result(acc, default, &node.range, IsVariable);
+        }
         ExprSource::With { inner, body } => {
             visit_result(acc, body, &node.range, IsVariable);
             visit_result(acc, inner, &node.range, IsVariable);

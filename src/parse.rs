@@ -256,12 +256,38 @@ impl Expr {
     /// rnix::SyntaxNode isn't recognized, we don't get tooling for its children.
     pub fn parse(node: SyntaxNode, scope: Gc<Scope>) -> Result<Self, EvalError> {
         let range = Some(node.text_range());
+        let recurse_option_box = |node| match node {
+            None => Err(ERR_PARSING),
+            Some(node) => Expr::parse(node, scope.clone()).map(|x| Box::new(x)),
+        };
+        let recurse_option_gc = |node| match node {
+            None => Err(ERR_PARSING),
+            Some(node) => Expr::parse(node, scope.clone()).map(|x| Gc::new(x)),
+        };
         let recurse_box = |node| Expr::parse(node, scope.clone()).map(|x| Box::new(x));
         let recurse_gc = |node| Expr::parse(node, scope.clone()).map(|x| Gc::new(x));
+        let process_select = |select: &rnix::types::Select, scope| {
+            let source = ExprSource::Select {
+                from: recurse_option_gc(select.set()),
+                index: recurse_option_box(select.index()),
+            };
+            Ok(Self {
+                value: GcCell::new(None),
+                source,
+                range,
+                scope,
+            })
+        };
         let source = match ParsedType::try_from(node.clone()).map_err(|_| ERR_PARSING)? {
-            ParsedType::Select(select) => ExprSource::Select {
-                from: recurse_gc(select.set().ok_or(ERR_PARSING)?),
-                index: recurse_box(select.index().ok_or(ERR_PARSING)?),
+            ParsedType::Select(select) => {
+                return process_select(&select, scope.clone());
+            }
+            ParsedType::OrDefault(or) => ExprSource::OrDefault {
+                default: recurse_option_box(or.default()),
+                index: match or.index() {
+                    None => Err(ERR_PARSING),
+                    Some(s) => process_select(&s, scope.clone()).map(Box::new),
+                },
             },
             ParsedType::AttrSet(set) => {
                 let is_recursive = set.recursive();
@@ -276,16 +302,13 @@ impl Expr {
                     scope: new_scope,
                 });
             }
-            ParsedType::Paren(paren) => {
-                let inner = paren.inner().ok_or(ERR_PARSING)?;
-                ExprSource::Paren {
-                    inner: recurse_box(inner),
-                }
-            }
+            ParsedType::Paren(paren) => ExprSource::Paren {
+                inner: recurse_option_box(paren.inner()),
+            },
             ParsedType::BinOp(binop) => {
                 use rnix::types::BinOpKind::*;
-                let left = recurse_box(binop.lhs().ok_or(ERR_PARSING)?);
-                let right = recurse_box(binop.rhs().ok_or(ERR_PARSING)?);
+                let left = recurse_option_box(binop.lhs());
+                let right = recurse_option_box(binop.rhs());
                 macro_rules! binop_source {
                     ( $op:expr ) => {
                         ExprSource::BinOp {
@@ -322,10 +345,10 @@ impl Expr {
                 use rnix::types::UnaryOpKind;
                 match unary.operator() {
                     UnaryOpKind::Invert => ExprSource::UnaryInvert {
-                        value: recurse_box(unary.value().ok_or(ERR_PARSING)?),
+                        value: recurse_option_box(unary.value()),
                     },
                     UnaryOpKind::Negate => ExprSource::UnaryNegate {
-                        value: recurse_box(unary.value().ok_or(ERR_PARSING)?),
+                        value: recurse_option_box(unary.value()),
                     },
                 }
             }
@@ -335,7 +358,7 @@ impl Expr {
                 }
             }
             ParsedType::Dynamic(dynamic) => ExprSource::Dynamic {
-                inner: recurse_box(dynamic.inner().ok_or(ERR_PARSING)?),
+                inner: recurse_option_box(dynamic.inner()),
             },
             ParsedType::Value(literal) => {
                 use rnix::value::Value::*;
@@ -372,11 +395,9 @@ impl Expr {
                     scope: new_scope,
                 });
             }
-            ParsedType::Apply(apply) => {
-                ExprSource::Apply {
-                    function: recurse_box(apply.lambda().ok_or(ERR_PARSING)?),
-                    arg: recurse_box(apply.value().ok_or(ERR_PARSING)?),
-                }
+            ParsedType::Apply(apply) => ExprSource::Apply {
+                function: recurse_option_box(apply.lambda()),
+                arg: recurse_option_box(apply.value()),
             },
             ParsedType::Pattern(pattern) => {
                 let mut names = std::collections::HashSet::new();

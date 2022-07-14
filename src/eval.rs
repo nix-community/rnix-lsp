@@ -95,6 +95,13 @@ pub enum ExprSource {
         /// interpolated and literal parts of this string
         parts: Vec<StringPartSource>,
     },
+    /// `a.b or c`
+    OrDefault {
+        /// `a.b`, of type `Select`
+        index: ExprResultBox,
+        /// `c`
+        default: ExprResultBox,
+    },
     Paren {
         inner: ExprResultBox,
     },
@@ -297,6 +304,9 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::OrDefault { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating `or` default operator is not implemented".to_string(),
+            ))),
             ExprSource::With { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
                 "evaluating with expressions is not implemented".to_string(),
             ))),
@@ -362,6 +372,7 @@ impl Expr {
             ExprSource::BoolAnd { left, right } => vec![left, right],
             ExprSource::BoolOr { left, right } => vec![left, right],
             ExprSource::Implication { left, right } => vec![left, right],
+            ExprSource::OrDefault { index, default } => vec![index, default],
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
             ExprSource::Apply { function, arg } => vec![function, arg],
