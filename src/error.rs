@@ -2,7 +2,6 @@ use gc::{Finalize, Trace};
 
 pub const ERR_PARSING: EvalError = EvalError::Internal(InternalError::Parsing);
 
-
 #[derive(Debug, Clone, Trace, Finalize)]
 pub enum EvalError {
     Internal(InternalError),
@@ -69,7 +68,9 @@ impl std::fmt::Display for ValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             ValueError::DivisionByZero => write!(f, "division by zero"),
-            ValueError::AttrAlreadyDefined(name) => write!(f, "attribute `{}` defined more than once", name),
+            ValueError::AttrAlreadyDefined(name) => {
+                write!(f, "attribute `{}` defined more than once", name)
+            }
             ValueError::TypeError(msg) => write!(f, "{}", msg),
         }
     }

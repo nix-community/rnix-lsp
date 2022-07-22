@@ -119,7 +119,7 @@ impl Expr {
                 // from an .eval(), which is probably infinite recursion.
                 return Err(EvalError::Internal(InternalError::Unimplemented(
                     "infinite recursion".to_string(),
-                )))
+                )));
             }
         };
         if let Some(ref value) = *value_borrow {
@@ -247,10 +247,12 @@ impl Expr {
                 .get(name)
                 // We don't have everything implemented yet, so silently fail,
                 // assuming we're at fault
-                .ok_or(EvalError::Internal(InternalError::Unimplemented(format!(
-                    "not found in scope: {}",
-                    name
-                ))))?
+                .ok_or_else(|| {
+                    EvalError::Internal(InternalError::Unimplemented(format!(
+                        "not found in scope: {}",
+                        name
+                    )))
+                })?
                 .eval(),
             ExprSource::Select { from, index } => {
                 let key = index.as_ref()?.as_ident()?;
@@ -285,9 +287,7 @@ impl Expr {
             ExprSource::Implication { left, right } => vec![left, right],
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
-            ExprSource::AttrSet {
-                definitions,
-            } => {
+            ExprSource::AttrSet { definitions } => {
                 let mut out = vec![];
                 out.extend(definitions);
                 // This looks similar to code at the end of the function, but
@@ -340,7 +340,7 @@ impl Expr {
     pub fn get_definition(&self) -> Option<Gc<Expr>> {
         use ExprSource::*;
         match &self.source {
-            Ident { name } => self.scope.get(&name),
+            Ident { name } => self.scope.get(name),
             Select { from, index } => {
                 let idx = index.as_ref().ok()?.as_ident().ok()?;
                 let out = from
@@ -402,7 +402,9 @@ pub fn merge_set_literal(name: String, a: Gc<Expr>, b: Gc<Expr>) -> Result<Gc<Ex
             // ```
             // The above would be caught because `x` is an ExprSource::Ident (as
             // opposed to being an ExprSource::AttrSet literal).
-            Err(EvalError::Value(ValueError::AttrAlreadyDefined(name.to_string())))
+            Err(EvalError::Value(ValueError::AttrAlreadyDefined(
+                name.to_string(),
+            )))
         }
     };
 
