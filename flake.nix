@@ -19,7 +19,7 @@
           pname = "rnix-lsp";
           root = ./.;
           doCheck = true;
-          checkInputs = [ pkgs.nix_2_4 ];
+          checkInputs = [ pkgs.nix ];
         };
         defaultPackage = packages.rnix-lsp;
 
