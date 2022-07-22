@@ -191,7 +191,7 @@ impl App {
             Ok(out) => {
                 match str::from_utf8(&out.stdout) {
                     Ok(v) => {
-                        let re = regex::Regex::new(r"^nix \(Nix\) (?P<major>\d)\.(?P<minor>\d).*").unwrap();
+                        let re = regex::Regex::new(r"^nix \(Nix\) (?P<major>\d+)\.(?P<minor>\d+).*").unwrap();
                         let m = re.captures(v).unwrap();
                         let major = m.name("major").map_or(1, |m| m.as_str().parse::<u8>().unwrap());
                         let minor = m.name("minor").map_or(1, |m| m.as_str().parse::<u8>().unwrap());
