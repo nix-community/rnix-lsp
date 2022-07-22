@@ -307,9 +307,11 @@ impl Expr {
                     },
                 }
             }
-            ParsedType::Ident(ident) => ExprSource::Ident {
-                name: ident.as_str().to_string(),
-            },
+            ParsedType::Ident(ident) => {
+                ExprSource::Ident {
+                    name: ident.as_str().to_string(),
+                }
+            }
             ParsedType::Dynamic(dynamic) => ExprSource::Dynamic {
                 inner: recurse_box(dynamic.inner().ok_or(ERR_PARSING)?),
             },

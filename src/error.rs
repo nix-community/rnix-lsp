@@ -1,11 +1,33 @@
+use std::error::Error;
+
 use gc::{Finalize, Trace};
+use rnix::TextRange;
 
 pub const ERR_PARSING: EvalError = EvalError::Internal(InternalError::Parsing);
 
+/// Used for rnix-lsp main functions
+#[derive(Debug, Clone, Trace, Finalize)]
+pub enum AppError {
+    /// Unspecified internal error
+    Internal(String),
+}
 
+impl std::error::Error for AppError {}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AppError::Internal(x) => write!(f, "internal error: {}", x),
+        }
+    }
+}
+
+/// Could not evaluate an AST node
 #[derive(Debug, Clone, Trace, Finalize)]
 pub enum EvalError {
+    /// failed to evaluate because of a limitation of our evaluator
     Internal(InternalError),
+    /// the code of the user definitely does not evaluate
     Value(ValueError),
 }
 
@@ -31,18 +53,44 @@ pub enum InternalError {
     Parsing,
 }
 
-#[derive(Debug, Clone, Trace, Finalize)]
+#[derive(Debug, Clone, Trace, Finalize, PartialEq, Eq)]
 /// Used when we're confident that the user/code is at fault, such as
 /// division by zero. We use the parser directly for error reporting,
 /// so the evaluator returns its copies of parsing errors as internal,
 /// silent errors (see InternalError above).
-// TODO: store error text ranges to help the user figure out
-//       exactly where an error is caused
 pub enum ValueError {
+    /// Division by zero
     DivisionByZero,
+    /// Type error
     TypeError(String),
+    /// An attribute name is present twice in the same attrset
     AttrAlreadyDefined(String),
+    /// An identifier is definitely not defined. Argument is the identifer.
+    ///
+    /// Note that this should not be used when one cannot know like
+    /// `with import <nixpkgs> {}; some_attr`
+    UnboundIdentifier(String),
 }
+
+#[derive(Debug, Clone, Trace, Finalize, PartialEq, Eq)]
+/// An error augmented with a location
+pub struct Located<T: Error + Clone + Trace + Finalize> {
+    /// Where the error is located
+    #[unsafe_ignore_trace]
+    pub range: TextRange,
+    /// The nature of the issue
+    pub kind: T
+}
+
+impl<T: Error + Clone + Trace + Finalize> std::error::Error for Located<T> {}
+
+impl<T: Error + Clone + Trace + Finalize> std::fmt::Display for Located<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{} at {:?}", &self.kind, &self.range)
+    }
+}
+
+impl std::error::Error for ValueError {}
 
 impl std::error::Error for EvalError {}
 
@@ -71,6 +119,7 @@ impl std::fmt::Display for ValueError {
             ValueError::DivisionByZero => write!(f, "division by zero"),
             ValueError::AttrAlreadyDefined(name) => write!(f, "attribute `{}` defined more than once", name),
             ValueError::TypeError(msg) => write!(f, "{}", msg),
+            ValueError::UnboundIdentifier(name) => write!(f, "identifier {} is unbound", name),
         }
     }
 }

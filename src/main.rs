@@ -25,6 +25,7 @@ mod error;
 mod eval;
 mod lookup;
 mod parse;
+mod static_analysis;
 mod scope;
 mod tests;
 mod utils;
@@ -57,6 +58,8 @@ use std::{
     rc::Rc,
     str::FromStr,
 };
+
+use crate::error::AppError;
 
 type Error = Box<dyn std::error::Error>;
 
@@ -250,21 +253,26 @@ impl App {
         }
     }
 
+    /// Common code of handle_notification between DidOpenTextDocument and DidChangeTextDocument
+    fn handle_content(&mut self, uri: Url, content: String) -> Result<(), Error> {
+        let parsed = rnix::parse(&content);
+        let path = PathBuf::from_str(uri.path());
+        let path = path.unwrap_or_else(|_| PathBuf::from("<unnamed>"));
+        let gc_root = Gc::new(Scope::Root(path));
+        let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
+        let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
+        self.files.insert(uri.clone(), (parsed, content, evaluated));
+        self.send_diagnostics(uri)?;
+        Ok(())
+    }
+
     // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_didChange
     fn handle_notification(&mut self, req: Notification) -> Result<(), Error> {
         match &*req.method {
             DidOpenTextDocument::METHOD => {
                 let params: DidOpenTextDocumentParams = serde_json::from_value(req.params)?;
                 let text = params.text_document.text;
-                let parsed = rnix::parse(&text);
-                self.send_diagnostics(params.text_document.uri.clone(), &text, &parsed)?;
-                if let Ok(path) = PathBuf::from_str(params.text_document.uri.path()) {
-                    let gc_root = Gc::new(Scope::Root(path));
-                    let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
-                    let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
-                    self.files
-                        .insert(params.text_document.uri, (parsed, text, evaluated));
-                }
+                self.handle_content(params.text_document.uri, text)?;
             }
             DidChangeTextDocument::METHOD => {
                 // Per the language server spec (https://git.io/JcrvY), we should apply changes
@@ -319,15 +327,7 @@ impl App {
 
                     content = new_content;
                 }
-                let parsed = rnix::parse(&content);
-                self.send_diagnostics(uri.clone(), &content, &parsed)?;
-                if let Ok(path) = PathBuf::from_str(uri.path()) {
-                    let gc_root = Gc::new(Scope::Root(path));
-                    let parsed_root = parsed.root().inner().ok_or(ERR_PARSING);
-                    let evaluated = parsed_root.and_then(|x| Expr::parse(x, gc_root));
-                    self.files
-                        .insert(uri, (parsed, content.to_owned().to_string(), evaluated));
-                }
+                self.handle_content(uri, content)?;
             }
             _ => (),
         }
@@ -580,7 +580,14 @@ impl App {
 
         Some(lsp_links)
     }
-    fn send_diagnostics(&mut self, uri: Url, code: &str, ast: &AST) -> Result<(), Error> {
+    fn send_diagnostics(&mut self, uri: Url) -> Result<(), Error> {
+        let (ast, code, parsed) = self.files.get(&uri).ok_or_else(|| {
+            AppError::Internal(format!(
+                "send_diagnostics called on unregistered uri {}",
+                &uri
+            ))
+        })?;
+        // errors reported by rnix-parser
         let errors = ast.errors();
         let mut diagnostics = Vec::with_capacity(errors.len());
         for err in errors {
@@ -602,6 +609,26 @@ impl App {
                     ..Diagnostic::default()
                 });
             }
+        }
+        // errors reported by crate::static_analysis
+        let errors = match parsed {
+            Ok(v) => static_analysis::check(v),
+            Err(EvalError::Value(e)) => {
+                let range = TextRange::up_to(TextSize::of(code));
+                vec![error::Located { range, kind: e.clone() }]
+            },
+            Err(EvalError::Internal(_)) => {
+                // don't report false positives
+                vec![]
+            },
+        };
+        for error in errors {
+                diagnostics.push(Diagnostic {
+                    range: utils::range(code, error.range),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: error.kind.to_string(),
+                    ..Diagnostic::default()
+                });
         }
         self.notify(Notification::new(
             "textDocument/publishDiagnostics".into(),
