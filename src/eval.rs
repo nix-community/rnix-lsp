@@ -73,6 +73,13 @@ pub enum ExprSource {
         from: ExprResultGc,
         index: ExprResultBox,
     },
+    /// `assert condition; body`
+    Assert {
+        /// the asserted condition
+        condition: ExprResultBox,
+        /// the body which is only evaluated if the assertion is true
+        body: ExprResultBox,
+    },
     /// Dynamic attribute, such as the curly braces in `foo.${toString (1+1)}`
     Dynamic {
         inner: ExprResultBox,
@@ -304,6 +311,9 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::Assert { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating `assert` operator is not implemented".to_string(),
+            ))),
             ExprSource::OrDefault { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
                 "evaluating `or` default operator is not implemented".to_string(),
             ))),
@@ -371,6 +381,7 @@ impl Expr {
             ExprSource::BinOp { op: _, left, right } => vec![left, right],
             ExprSource::BoolAnd { left, right } => vec![left, right],
             ExprSource::BoolOr { left, right } => vec![left, right],
+            ExprSource::Assert { condition, body } => vec![condition, body],
             ExprSource::Implication { left, right } => vec![left, right],
             ExprSource::OrDefault { index, default } => vec![index, default],
             ExprSource::UnaryInvert { value } => vec![value],

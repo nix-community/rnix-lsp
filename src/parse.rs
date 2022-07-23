@@ -498,6 +498,12 @@ impl Expr {
                 }
                 ExprSource::String { parts }
             }
+            ParsedType::Assert(assert) => {
+                ExprSource::Assert {
+                    body: recurse_option_box(assert.body()),
+                    condition: recurse_option_box(assert.condition()),
+                }
+            },
             node => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                     "rnix-parser node {:?}",

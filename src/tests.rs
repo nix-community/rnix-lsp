@@ -218,6 +218,18 @@ fn unbound_or_default_indexed() {
 }
 
 #[test]
+fn unbound_assert_condition() {
+    let code = "assert f; 1";
+    assert_eq!(static_analysis(code), hashmap! {"f" => "identifier f is unbound".into()});
+}
+
+#[test]
+fn unbound_assert_body() {
+    let code = "assert true; f";
+    assert_eq!(static_analysis(code), hashmap! {"f" => "identifier f is unbound".into()});
+}
+
+#[test]
 fn unbound_with() {
     let code = "with foo; 1";
     assert_eq!(
