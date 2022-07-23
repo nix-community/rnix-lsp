@@ -504,6 +504,13 @@ impl Expr {
                     condition: recurse_option_box(assert.condition()),
                 }
             },
+            ParsedType::IfElse(ifelse) => {
+                ExprSource::IfElse {
+                    body: recurse_option_box(ifelse.body()),
+                    else_body: recurse_option_box(ifelse.else_body()),
+                    condition: recurse_option_box(ifelse.condition()),
+                }
+            },
             node => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                     "rnix-parser node {:?}",

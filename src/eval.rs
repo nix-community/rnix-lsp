@@ -97,6 +97,15 @@ pub enum ExprSource {
     Literal {
         value: NixValue,
     },
+    /// `if condition then body else else_body`
+    IfElse {
+        /// the condition evaluated
+        condition: ExprResultBox,
+        /// the body evaluated when the condition is true
+        body: ExprResultBox,
+        /// the body evaluated when the condition is false
+        else_body: ExprResultBox,
+    },
     /// A string, possibly interpolated
     String {
         /// interpolated and literal parts of this string
@@ -311,6 +320,9 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::IfElse { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating `if` is not implemented".to_string(),
+            ))),
             ExprSource::Assert { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
                 "evaluating `assert` operator is not implemented".to_string(),
             ))),
@@ -381,6 +393,7 @@ impl Expr {
             ExprSource::BinOp { op: _, left, right } => vec![left, right],
             ExprSource::BoolAnd { left, right } => vec![left, right],
             ExprSource::BoolOr { left, right } => vec![left, right],
+            ExprSource::IfElse { condition, body, else_body } => vec![condition, body, else_body],
             ExprSource::Assert { condition, body } => vec![condition, body],
             ExprSource::Implication { left, right } => vec![left, right],
             ExprSource::OrDefault { index, default } => vec![index, default],

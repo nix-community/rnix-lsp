@@ -230,6 +230,24 @@ fn unbound_assert_body() {
 }
 
 #[test]
+fn unbound_if_condition() {
+    let code = "if foo then 1 else {}";
+    assert_eq!(static_analysis(code), hashmap! {"foo" => "identifier foo is unbound".into()});
+}
+
+#[test]
+fn unbound_if_body() {
+    let code = "if true then foo else {}";
+    assert_eq!(static_analysis(code), hashmap! {"foo" => "identifier foo is unbound".into()});
+}
+
+#[test]
+fn unbound_if_body_else() {
+    let code = "if true then 1 else foo";
+    assert_eq!(static_analysis(code), hashmap! {"foo" => "identifier foo is unbound".into()});
+}
+
+#[test]
 fn unbound_with() {
     let code = "with foo; 1";
     assert_eq!(
