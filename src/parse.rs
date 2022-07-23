@@ -511,11 +511,17 @@ impl Expr {
                     condition: recurse_option_box(ifelse.condition()),
                 }
             },
-            ParsedType::Key(_) | ParsedType::Inherit(_) => {
-                // keys are handled in KeyValuePair and Inherit in let in/attrset
+            ParsedType::Key(_) | ParsedType::KeyValue(_)
+            | ParsedType::Inherit(_) | ParsedType::InheritFrom(_)
+            | ParsedType::PatBind(_) | ParsedType::PatEntry(_) => {
+                // keys are handled in KeyValuePair
+                // inherit in let in/attrset
+                // patterns in lambda
                 return Err(EvalError::Internal(InternalError::Unexpected(format!("this kind of node {:?} should have been handled as part of another node type", node))))
             }
-            node => {
+            ParsedType::Error(_) => return Err(ERR_PARSING),
+            ParsedType::PathWithInterpol(_) |
+            ParsedType::LegacyLet(_) | ParsedType::Root(_) => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                     "rnix-parser node {:?}",
                     node
