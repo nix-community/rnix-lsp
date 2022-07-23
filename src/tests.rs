@@ -248,6 +248,30 @@ fn unbound_if_body_else() {
 }
 
 #[test]
+fn bound_let_inherit() {
+    let code = "let foo = {a = 1;}; in let inherit (foo) a; in a";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_let_inherit() {
+    let code = "let foo = {a = 1;}; in let inherit (bar) a; in a";
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
+fn unbound_let_inherit2() {
+    let code = "let foo = {a = 1;}; in let inherit (foo) a; in aaaa";
+    assert_eq!(static_analysis(code), hashmap! {"aaaa" => "identifier aaaa is unbound".into()});
+}
+
+#[test]
+fn unbound_let_inherit3() {
+    let code = "let foo = {a = 1;}; in let inherit (foo) a; in a + bar";
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
 fn unbound_with() {
     let code = "with foo; 1";
     assert_eq!(

@@ -511,6 +511,10 @@ impl Expr {
                     condition: recurse_option_box(ifelse.condition()),
                 }
             },
+            ParsedType::Key(_) | ParsedType::Inherit(_) => {
+                // keys are handled in KeyValuePair and Inherit in let in/attrset
+                return Err(EvalError::Internal(InternalError::Unexpected(format!("this kind of node {:?} should have been handled as part of another node type", node))))
+            }
             node => {
                 return Err(EvalError::Internal(InternalError::Unimplemented(format!(
                     "rnix-parser node {:?}",
