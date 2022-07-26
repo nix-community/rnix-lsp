@@ -14,6 +14,8 @@ use serde_json::json;
 use std::time::Duration;
 #[cfg(test)]
 use stoppable_thread::*;
+#[cfg(test)]
+use crate::error::ValueError;
 
 #[allow(dead_code)]
 /// Evaluates a nix code snippet
@@ -295,12 +297,30 @@ fn attrs_merge() {
 }
 
 #[test]
+fn attrs_merge_3() {
+    let code = "{ a.b = 1; a.c = 2; a.d = 3; }".to_string();
+    assert_eq!(eval(&format!("{}.a.b", code)).as_int().unwrap(), 1);
+    assert_eq!(eval(&format!("{}.a.c", code)).as_int().unwrap(), 2);
+    assert_eq!(eval(&format!("{}.a.d", code)).as_int().unwrap(), 3);
+}
+
+#[test]
 fn attrs_merge_conflict() {
     let ast = rnix::parse("{ a = { b = 1; c = 3; }; a.c = 2; }");
     let root = ast.root().inner().unwrap();
     let path = std::env::current_dir().unwrap();
     let parse_result = Expr::parse(root, Gc::new(Scope::Root(path)));
+    assert!(matches!(parse_result, Err(EvalError::Value(ValueError::AttrAlreadyDefined(_)))));
+}
+
+#[test]
+fn attrs_merge_conflict_2() {
+    let ast = rnix::parse("{ a = let y = { b = 1; }; in y; a.c = 2; }");
+    let root = ast.root().inner().unwrap();
+    let path = std::env::current_dir().unwrap();
+    let parse_result = Expr::parse(root, Gc::new(Scope::Root(path)));
     assert!(parse_result.is_err());
+    // assert!(matches!(parse_result, Err(EvalError::Value(ValueError::AttrAlreadyDefined(_)))));
 }
 
 #[test]
