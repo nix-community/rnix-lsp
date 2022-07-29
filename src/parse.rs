@@ -406,7 +406,7 @@ impl Expr {
                     Some(at) => {
                         let string = at.as_str().to_string();
                         names.insert(string.clone());
-                        Some(string)
+                        Some(recurse_box(at.node().clone()))
                     }
                 };
                 for entry in pattern.entries() {

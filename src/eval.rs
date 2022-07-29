@@ -128,7 +128,7 @@ pub enum ExprSource {
         /// whether the patter is incomplete (contains `...`)
         ellipsis: bool,
         /// the identifier bound by `@`
-        at: Option<String>,
+        at: Option<ExprResultBox>,
     },
     Lambda {
         /// A `Pattern` or an `Identifier`
