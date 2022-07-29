@@ -50,7 +50,6 @@ an issue and/or send a PR if a config below didn't work out of the box.
     }
   }
 }
-
 ```
 
 #### [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim)
@@ -75,6 +74,19 @@ endif
 
 ### Emacs
 
+#### [doom](https://github.com/doomemacs/doomemacs)
+
+For eglot use `(lsp +eglot)`
+
+```elisp
+;; init.el
+(doom! :tools
+       lsp
+       
+       :lang
+       (nix +lsp))
+```
+
 #### [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
 ```elisp
@@ -84,7 +96,9 @@ endif
                   :major-modes '(nix-mode)
                   :server-id 'nix))
 ```
+
 #### [eglot](https://github.com/joaotavora/eglot)
+
 ```elisp
 (add-to-list 'eglot-server-programs '(nix-mode . ("rnix-lsp")))
 ```
