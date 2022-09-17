@@ -383,6 +383,34 @@ impl Expr {
 
 /// Used for merging sets during parsing. For example:
 /// { a.b = 1; a.c = 2; } => { a = { b = 1; c = 2; }; }
+///
+/// Nix only allows merging several such KeyValuePairs when they correspond
+/// to bare literals. Inserting a mere indirection through let or a function
+/// prevents this from happening and throws an error instead:
+/// ```text
+/// nix-repl> :p { a = { b = 1; }; a.c = 2; }
+/// { a = { b = 1; c = 2; }; }
+///
+/// nix-repl> :p { a = (x: x){ b = 1; }; a.c = 2; }
+/// error: attribute 'a.c' already defined at (string):1:3
+///
+///        at «string»:1:25:
+///
+///             1| { a = (x: x){ b = 1; }; a.c = 2; }
+///              |                         ^
+///
+/// nix-repl> :p let y = { b = 1; }; in { a = y; a.c = 2; }
+/// error: attribute 'a.c' already defined at (string):1:26
+///
+///        at «string»:1:33:
+///
+///             1| let y = { b = 1; }; in { a = y; a.c = 2; }
+///              |                                 ^
+///
+/// ```
+/// This function takes a and b, attempts to interpret them as literal
+/// key value pairs or literal attrset values, and if it failed returns
+/// such an error.
 pub fn merge_set_literal(name: String, a: Gc<Expr>, b: Gc<Expr>) -> Result<Gc<Expr>, EvalError> {
     // evaluate literal attr sets only, otherwise error
     let eval_literal = |src: Gc<Expr>| {
@@ -391,18 +419,25 @@ pub fn merge_set_literal(name: String, a: Gc<Expr>, b: Gc<Expr>) -> Result<Gc<Ex
         } else {
             src
         };
-        if let ExprSource::AttrSet { .. } = &src.source {
-            src.eval()?.as_map()
-        } else {
-            // We cannot merge a literal with a non-literal. This error is
-            // caused by incorrect expressions such as:
-            // ```
-            // repl> let x = { y = 1; }; in { a = x; a.z = 2; }
-            // error: attribute 'a.z' at (string):1:33 already defined at (string):1:26
-            // ```
-            // The above would be caught because `x` is an ExprSource::Ident (as
-            // opposed to being an ExprSource::AttrSet literal).
-            Err(EvalError::Value(ValueError::AttrAlreadyDefined(name.to_string())))
+        match &src.source {
+            ExprSource::AttrSet { .. } => src.eval()?.as_map(),
+            ExprSource::Literal {
+                value: NixValue::Map(m),
+                ..
+            } => Ok(m.clone()),
+            _ => {
+                // We cannot merge a literal with a non-literal. This error is
+                // caused by incorrect expressions such as:
+                // ```
+                // repl> let x = { y = 1; }; in { a = x; a.z = 2; }
+                // error: attribute 'a.z' at (string):1:33 already defined at (string):1:26
+                // ```
+                // The above would be caught because `x` is an ExprSource::Ident (as
+                // opposed to being an ExprSource::AttrSet literal).
+                Err(EvalError::Value(ValueError::AttrAlreadyDefined(
+                    name.to_string(),
+                )))
+            }
         }
     };
 
