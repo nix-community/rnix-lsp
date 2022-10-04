@@ -90,6 +90,7 @@ fn real_main() -> Result<(), Error> {
         completion_provider: Some(CompletionOptions {
             ..CompletionOptions::default()
         }),
+        document_highlight_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_link_provider: Some(DocumentLinkOptions {
@@ -242,6 +243,9 @@ impl App {
                 }
             }
             self.reply(Response::new_ok(id, selections));
+        } else if let Some((id, params)) = cast::<DocumentHighlightRequest>(&mut req){
+            let highlight = self.highlight(params);
+            self.reply(Response::new_ok(id, highlight))
         } else {
             let req = req.expect("internal error: req should have been wrapped in Some");
 
@@ -505,6 +509,58 @@ impl App {
         changes.insert(uri, rename.edits);
         Some(changes)
     }
+
+    fn highlight(&mut self, params: DocumentHighlightParams) -> Option<Vec<DocumentHighlight>> {
+        struct Highlight<'a> {
+            highlights: Vec<DocumentHighlight>,
+            code: &'a str,
+            target: &'a str,
+        }
+        fn highlight_in_node(highlight: &mut Highlight, node: &SyntaxNode) -> Option<()> {
+            if let Some(ident) = Ident::cast(node.clone()) {
+                if ident.as_str() == highlight.target {
+                    highlight.highlights.push(DocumentHighlight {
+                        kind: None,
+                        range: utils::range(highlight.code, node.text_range()),
+                    });
+                }
+            } else if let Some(index) = Select::cast(node.clone()) {
+                highlight_in_node(highlight, &index.set()?);
+            } else if let Some(attr) = Key::cast(node.clone()) {
+                let mut path = attr.path();
+                if let Some(ident) = path.next() {
+                    highlight_in_node(highlight, &ident);
+                }
+            } else {
+                for child in node.children() {
+                    highlight_in_node(highlight, &child);
+                }
+            }
+            Some(())
+        }
+
+        let uri = params.text_document_position_params.text_document.uri;
+        let (ast, code, _) = self.files.get(&uri)?;
+        let offset = utils::lookup_pos(code, params.text_document_position_params.position)?;
+        let info = utils::ident_at(&ast.node(), offset)?;
+        if !info.path.is_empty() {
+            // Renaming within a set not supported
+            return None;
+        }
+        let target = info.ident;
+        let scope = utils::scope_for(&Rc::new(uri.clone()), target.node().clone())?;
+
+        let mut highlight_info = Highlight {
+            highlights: Vec::new(),
+            code,
+            target: target.as_str(),
+        };
+        let definition = scope.get(target.as_str())?;
+        highlight_in_node(&mut highlight_info, &definition.set);
+
+        Some(highlight_info.highlights)
+    }
+
     fn document_links(&mut self, params: &DocumentLinkParams) -> Option<Vec<DocumentLink>> {
         let (current_ast, current_content, _) = self.files.get(&params.text_document.uri)?;
         let parent_dir = Path::new(params.text_document.uri.path()).parent();
