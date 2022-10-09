@@ -423,15 +423,43 @@ impl App {
         let (ast, content, _) = self.files.get(&params.text_document.uri)?;
         let offset = utils::lookup_pos(content, params.position)?;
 
+        // complete after "pkgs." -> name is empty
         let node = ast.node();
+        // TODO rename name to prefix
         let (node, scope, name) =
             self.scope_for_ident(params.text_document.uri.clone(), &node, offset)?;
+
+        if name == "" {
+            //eprintln!("prefix is empty. suggesting all variables in scope");
+            let mut completions = Vec::new();
+            for (var, data) in scope {
+                let det = data.render_detail();
+                completions.push(CompletionItem {
+                    label: var.clone(),
+                    documentation: data
+                        .documentation
+                        .map(|x| lsp_types::Documentation::String(x)),
+                    deprecated: Some(data.deprecated),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: Range {
+                            start: params.position,
+                            end: params.position,
+                        },
+                        new_text: var.clone(),
+                    })),
+                    detail: Some(det),
+                    ..CompletionItem::default()
+                });
+            }
+            return Some(completions);
+        }
 
         // Re-open, because scope_for_ident may mutably borrow
         let (_, content, _) = self.files.get(&params.text_document.uri)?;
 
         let mut completions = Vec::new();
         for (var, data) in scope {
+            //eprintln!("prefix={} var={}", name, var);
             if var.starts_with(&name.as_str()) {
                 let det = data.render_detail();
                 completions.push(CompletionItem {
