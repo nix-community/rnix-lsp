@@ -27,10 +27,9 @@
           nativeBuildInputs = with pkgs; [
             rustc
             cargo
-            rustPlatform.rustLibSrc
             gitAndTools.pre-commit
           ];
-          RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
         };
 
         apps.rnix-lsp = utils.lib.mkApp {
