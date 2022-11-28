@@ -8,6 +8,17 @@ use rnix::TextRange;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 
+/// A string part
+///
+/// in `"foo${bar}baz"`, parts are `Literal("foo")`, `Expression(bar)` and `Literal("baz")`
+#[derive(Debug, Trace, Finalize)]
+pub enum StringPartSource {
+    /// Literal string
+    Literal(String),
+    /// Interpolated expression
+    Expression(ExprResultBox),
+}
+
 // Expressions like BinOp have the only copy of their Expr children,
 // so they use ExprResultBox. Expressions like Map, which may have
 // contents copied in multiple places, need ExprResultGc.
@@ -36,6 +47,18 @@ pub enum ExprSource {
         /// ```
         definitions: Vec<ExprResultGc>,
     },
+    LetIn {
+        /// We use a list because the user might define the same top-level
+        /// attribute in multiple places via path syntax. For example:
+        /// ```nix
+        /// {
+        ///   xyz.foo = true;
+        ///   xyz.bar = false;
+        /// }
+        /// ```
+        definitions: Vec<ExprResultGc>,
+        body: ExprResultBox,
+    },
     /// See the AttrSet handling in Expr::parse for more details.
     /// Note that this syntax is the exact opposite of Expr::Select.
     KeyValuePair {
@@ -50,9 +73,23 @@ pub enum ExprSource {
         from: ExprResultGc,
         index: ExprResultBox,
     },
+    /// `assert condition; body`
+    Assert {
+        /// the asserted condition
+        condition: ExprResultBox,
+        /// the body which is only evaluated if the assertion is true
+        body: ExprResultBox,
+    },
     /// Dynamic attribute, such as the curly braces in `foo.${toString (1+1)}`
     Dynamic {
         inner: ExprResultBox,
+    },
+    /// `with inner; body`
+    With {
+        /// the expression used to provide bindings
+        inner: ExprResultGc,
+        /// the body evaluated with the new bindings
+        body: ExprResultBox,
     },
     Ident {
         name: String,
@@ -60,8 +97,51 @@ pub enum ExprSource {
     Literal {
         value: NixValue,
     },
+    /// `if condition then body else else_body`
+    IfElse {
+        /// the condition evaluated
+        condition: ExprResultBox,
+        /// the body evaluated when the condition is true
+        body: ExprResultBox,
+        /// the body evaluated when the condition is false
+        else_body: ExprResultBox,
+    },
+    /// A string, possibly interpolated
+    String {
+        /// interpolated and literal parts of this string
+        parts: Vec<StringPartSource>,
+    },
+    /// `a.b or c`
+    OrDefault {
+        /// `a.b`, of type `Select`
+        index: ExprResultBox,
+        /// `c`
+        default: ExprResultBox,
+    },
     Paren {
         inner: ExprResultBox,
+    },
+    /// `{ arg1, ... } @ args` in a lambda definition `{ arg1, ... } @ args: body`
+    Pattern {
+        /// for `{ arg1, arg2 ? default }: body`, a map `"arg1" => None, "arg2" => default`
+        entries: HashMap<String, Option<ExprResultGc>>,
+        /// whether the patter is incomplete (contains `...`)
+        ellipsis: bool,
+        /// the identifier bound by `@`
+        at: Option<ExprResultBox>,
+    },
+    Lambda {
+        /// A `Pattern` or an `Identifier`
+        arg: ExprResultBox,
+        /// the body of the function
+        body: ExprResultBox,
+    },
+    /// Function application: `f x`
+    Apply {
+        /// the function `f` applied
+        function: ExprResultBox,
+        /// the argument `x`
+        arg: ExprResultBox,
     },
     BinOp {
         op: BinOpKind,
@@ -85,6 +165,9 @@ pub enum ExprSource {
     },
     UnaryNegate {
         value: ExprResultBox,
+    },
+    List {
+        elements: Vec<ExprResultGc>,
     },
 }
 
@@ -119,7 +202,7 @@ impl Expr {
                 // from an .eval(), which is probably infinite recursion.
                 return Err(EvalError::Internal(InternalError::Unimplemented(
                     "infinite recursion".to_string(),
-                )))
+                )));
             }
         };
         if let Some(ref value) = *value_borrow {
@@ -135,6 +218,7 @@ impl Expr {
     fn eval_uncached(&self) -> Result<Gc<NixValue>, EvalError> {
         match &self.source {
             ExprSource::Paren { inner } => inner.as_ref()?.eval(),
+            ExprSource::LetIn { body, .. } => body.as_ref()?.eval(),
             ExprSource::Literal { value } => Ok(Gc::new(value.clone())),
             ExprSource::BoolAnd { left, right } => {
                 if left.as_ref()?.eval()?.as_bool()? {
@@ -236,6 +320,33 @@ impl Expr {
                     }
                 }))
             }
+            ExprSource::IfElse { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating `if` is not implemented".to_string(),
+            ))),
+            ExprSource::Assert { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating `assert` operator is not implemented".to_string(),
+            ))),
+            ExprSource::OrDefault { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating `or` default operator is not implemented".to_string(),
+            ))),
+            ExprSource::With { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating with expressions is not implemented".to_string(),
+            ))),
+            ExprSource::String { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating strings is not implemented".to_string(),
+            ))),
+            ExprSource::List { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating lists is not implemented".to_string(),
+            ))),
+            ExprSource::Apply { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating function application is not implemented".to_string(),
+            ))),
+            ExprSource::Lambda { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating function is not implemented".to_string(),
+            ))),
+            ExprSource::Pattern { .. } => Err(EvalError::Internal(InternalError::Unimplemented(
+                "evaluating function argument pattern is not implemented".to_string(),
+            ))),
             ExprSource::AttrSet { .. } => Err(EvalError::Internal(InternalError::Unexpected(
                 "eval_uncached ExprSource::Map should be unreachable, ".to_string()
                     + "since the Expr::value should be initialized at creation",
@@ -282,9 +393,51 @@ impl Expr {
             ExprSource::BinOp { op: _, left, right } => vec![left, right],
             ExprSource::BoolAnd { left, right } => vec![left, right],
             ExprSource::BoolOr { left, right } => vec![left, right],
+            ExprSource::IfElse { condition, body, else_body } => vec![condition, body, else_body],
+            ExprSource::Assert { condition, body } => vec![condition, body],
             ExprSource::Implication { left, right } => vec![left, right],
+            ExprSource::OrDefault { index, default } => vec![index, default],
             ExprSource::UnaryInvert { value } => vec![value],
             ExprSource::UnaryNegate { value } => vec![value],
+            ExprSource::Apply { function, arg } => vec![function, arg],
+            ExprSource::With { inner, body } => {
+                let mut res = vec![];
+                if let Ok(inner) = inner {
+                    res.push(inner.as_ref())
+                }
+                if let Ok(body) = body {
+                    res.push(body.as_ref())
+                }
+                return res
+            },
+            ExprSource::Pattern { entries, .. } => {
+                let mut res = vec![];
+                for entry in entries.values() {
+                    if let Some(Ok(default)) = entry {
+                        res.push(default.as_ref());
+                    }
+                }
+                return res
+            },
+            ExprSource::Lambda { arg, body } => vec![arg, body],
+            ExprSource::List { elements } => {
+                let mut res = vec![];
+                for entry in elements.iter() {
+                    if let Ok(default) = entry {
+                        res.push(default.as_ref());
+                    }
+                }
+                return res
+            }
+            ExprSource::String { parts } => {
+                let mut res = vec![];
+                for entry in parts.iter() {
+                    if let StringPartSource::Expression(Ok(inner)) = entry {
+                        res.push(inner.as_ref());
+                    }
+                }
+                return res
+            }
             ExprSource::AttrSet {
                 definitions,
             } => {
@@ -299,6 +452,21 @@ impl Expr {
                     .filter_map(Result::ok)
                     .map(|x| x.as_ref())
                     .collect();
+            }
+            ExprSource::LetIn {
+                definitions,
+                body
+            } => {
+                let mut out = vec![];
+                for def in definitions {
+                    if let Ok(x) = def.as_ref() {
+                        out.push(x.as_ref())
+                    }
+                }
+                if let Ok(b) = body {
+                    out.push(b.as_ref())
+                }
+                return out;
             }
             ExprSource::KeyValuePair { key, value } => {
                 let mut out = vec![];

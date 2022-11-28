@@ -70,6 +70,18 @@ fn order_of_operations() {
 }
 
 #[test]
+fn eval_let() {
+    let code = "let x = 1; in x";
+    assert_eq!(eval(code).as_int().unwrap(), 1);
+}
+
+#[test]
+fn eval_let_sequential() {
+    let code = "let x = 1; y = x; in x + y";
+    assert_eq!(eval(code).as_int().unwrap(), 2);
+}
+
+#[test]
 fn div_int_by_float() {
     let code = "1 / 2.0";
     assert_eq!(eval(code).as_float().unwrap(), 0.5);
@@ -96,7 +108,221 @@ fn binding_analysis_ignores_attrset_selection() {
 #[test]
 fn unbound_attrset() {
     let code = "1 + rec { x = 1; y = x; z = t; }.y";
-    assert_eq!(static_analysis(code), hashmap!{"t" => "identifier t is unbound".into()});
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"t" => "identifier t is unbound".into()}
+    );
+}
+
+#[test]
+fn unbound_list() {
+    let code = "[ 1 t ]";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"t" => "identifier t is unbound".into()}
+    );
+}
+
+#[test]
+fn bound_let() {
+    let code = "let x = 1; y = x; in x + y";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_builtins() {
+    let code = "map";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_let_body() {
+    let code = "let x = 1; in x + y";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"y" => "identifier y is unbound".into()}
+    );
+}
+
+#[test]
+fn unbound_let_defs() {
+    let code = "let x = t; y = u; in x + y";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"t" => "identifier t is unbound".into(), "u" => "identifier u is unbound".into()}
+    );
+}
+
+#[test]
+fn bound_let_fixpoint() {
+    let code = "let x = x; in x";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_let_recursive() {
+    let code = "let y = x; x = 1; in x - y";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_function_body() {
+    let code = "let f = x: x + y; in f 1";
+    assert_eq!(static_analysis(code), hashmap! {"y" => "identifier y is unbound".into()});
+}
+
+#[test]
+fn unbound_function_body_pattern() {
+    let code = "let f = {x}: x + y; in f { x = 1; }";
+    assert_eq!(static_analysis(code), hashmap! {"y" => "identifier y is unbound".into()});
+}
+
+#[test]
+fn unbound_function_pattern_default() {
+    let code = "let x = 1; f = {y ? x + z }: x + y; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {"z" => "identifier z is unbound".into()});
+}
+
+#[test]
+fn bound_function_pattern_default_seq() {
+    let code = "let x = 1; f = {y ? x, z ? y }: x + y + z; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_function_at() {
+    let code = "let f = {y ? args, ... }@args: { inherit args y; }; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_function_default_loop() {
+    let code = "let f = {y ? y, ... }: y; in f {}";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn bound_or_default() {
+    let code = "let s = {}; n = 1; in s.a or n";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_or_default() {
+    let code = "let s = {}; in s.a or n";
+    assert_eq!(static_analysis(code), hashmap! {"n" => "identifier n is unbound".into()});
+}
+
+#[test]
+fn unbound_or_default_indexed() {
+    let code = "in s.a or 1";
+    assert_eq!(static_analysis(code), hashmap! {"s" => "identifier s is unbound".into()});
+}
+
+#[test]
+fn unbound_assert_condition() {
+    let code = "assert f; 1";
+    assert_eq!(static_analysis(code), hashmap! {"f" => "identifier f is unbound".into()});
+}
+
+#[test]
+fn unbound_assert_body() {
+    let code = "assert true; f";
+    assert_eq!(static_analysis(code), hashmap! {"f" => "identifier f is unbound".into()});
+}
+
+#[test]
+fn unbound_if_condition() {
+    let code = "if foo then 1 else {}";
+    assert_eq!(static_analysis(code), hashmap! {"foo" => "identifier foo is unbound".into()});
+}
+
+#[test]
+fn unbound_if_body() {
+    let code = "if true then foo else {}";
+    assert_eq!(static_analysis(code), hashmap! {"foo" => "identifier foo is unbound".into()});
+}
+
+#[test]
+fn unbound_if_body_else() {
+    let code = "if true then 1 else foo";
+    assert_eq!(static_analysis(code), hashmap! {"foo" => "identifier foo is unbound".into()});
+}
+
+#[test]
+fn bound_let_inherit() {
+    let code = "let foo = {a = 1;}; in let inherit (foo) a; in a";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_let_inherit() {
+    let code = "let foo = {a = 1;}; in let inherit (bar) a; in a";
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
+fn unbound_let_inherit2() {
+    let code = "let foo = {a = 1;}; in let inherit (foo) a; in aaaa";
+    assert_eq!(static_analysis(code), hashmap! {"aaaa" => "identifier aaaa is unbound".into()});
+}
+
+#[test]
+fn unbound_let_inherit3() {
+    let code = "let foo = {a = 1;}; in let inherit (foo) a; in a + bar";
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
+fn unbound_with() {
+    let code = "with foo; 1";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"foo" => "identifier foo is unbound".into()}
+    );
+}
+
+#[test]
+fn maybe_bound_with() {
+    let code = "let inf = x: inf x; in with inf {}; bar";
+    assert_eq!(static_analysis(code), hashmap! {});
+}
+
+#[test]
+fn unbound_string() {
+    let code = r#" "foo${bar}baz" "#;
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
+fn unbound_multiline_string() {
+    let code = r#" ''
+        foo
+        ${bar}
+    baz''
+"#;
+    assert_eq!(static_analysis(code), hashmap! {"bar" => "identifier bar is unbound".into()});
+}
+
+#[test]
+fn unbound_config() {
+    let code = "{config, pkgs, ...}: { config = { services.xserver.enable = lib.mkForce true; }; }";
+    assert_eq!(static_analysis(code), hashmap! {"lib" => "identifier lib is unbound".into()});
+}
+
+#[test]
+fn unbound_config2() {
+    let code = "{config, pkgs, ...}: { config = { environment.systemPackages = [ (lib.hiPrio pkgs.sl) firefox ]; }";
+    assert_eq!(
+        static_analysis(code),
+        hashmap! {"lib" => "identifier lib is unbound".into(), "firefox" => "identifier firefox is unbound".into()}
+    );
+}
+
+#[test]
+fn maybe_bound_config3() {
+    let code = "{config, pkgs, ...}: { config = { environment.systemPackages = with pkgs; [ (lib.hiPrio sl) firefox ]; }";
+    assert_eq!(static_analysis(code), hashmap! {});
 }
 
 #[cfg(test)]
