@@ -1,5 +1,7 @@
 # rnix-lsp [![Crates.io](https://img.shields.io/crates/v/rnix-lsp)](https://crates.io/crates/rnix-lsp) [![Chat on Matrix](https://matrix.to/img/matrix-badge.svg)](https://matrix.to/#/#rnix-lsp:matrix.org) [![Build status](https://github.com/nix-community/rnix-lsp/actions/workflows/test.yml/badge.svg)](https://github.com/nix-community/rnix-lsp/actions/workflows/test.yml)
 
+**This project is not maintained. Checkout [nil](https://github.com/oxalica/nil) or [nixd](https://github.com/nix-community/nixd) for maintained alternatives.**
+
 A syntax-checking language server using
 [rnix](https://github.com/nix-community/rnix-parser).
 
